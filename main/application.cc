@@ -24,7 +24,16 @@
 // Motor control functions - only available on qebabe-xiaoche board
 // These are declared as weak externs and will be resolved at link time
 extern "C" void HandleMotorActionForEmotion(const char* emotion) __attribute__((weak));
+extern "C" void (*HandleMotorActionForEmotionPtr)(const char* emotion) __attribute__((weak));
 extern "C" void (*HandleMotorIdleActionPtr)(void) __attribute__((weak));
+
+// Motor control task
+static QueueHandle_t motor_control_queue_ = nullptr;
+static TaskHandle_t motor_control_task_handle_ = nullptr;
+
+// Motor action flags for state-based actions
+static volatile bool motor_action_pending_ = false;
+static volatile int motor_action_type_ = 0; // 0: none, 1: wake, 2: speak
 
 
 Application::Application() {
@@ -51,6 +60,8 @@ Application::Application() {
         .skip_unhandled_events = true
     };
     esp_timer_create(&clock_timer_args, &clock_timer_handle_);
+
+    // Motor control queue and task will be created in Initialize() to ensure proper initialization
 }
 
 Application::~Application() {
@@ -58,6 +69,17 @@ Application::~Application() {
         esp_timer_stop(clock_timer_handle_);
         esp_timer_delete(clock_timer_handle_);
     }
+
+    // Clean up motor control task and queue
+    if (motor_control_task_handle_ != nullptr) {
+        vTaskDelete(motor_control_task_handle_);
+        motor_control_task_handle_ = nullptr;
+    }
+    if (motor_control_queue_ != nullptr) {
+        vQueueDelete(motor_control_queue_);
+        motor_control_queue_ = nullptr;
+    }
+
     vEventGroupDelete(event_group_);
 }
 
@@ -256,8 +278,50 @@ void Application::Run() {
             display->UpdateStatusBar();
 
             // Handle motor idle actions (only on boards that support it)
-            if (HandleMotorIdleActionPtr != nullptr) {
-                HandleMotorIdleActionPtr();
+            // Use separate motor control task to avoid stability issues
+            // Trigger motor control every 30 seconds to reduce frequency
+            if (GetDeviceState() == kDeviceStateIdle &&
+                clock_ticks_ > 60 && // Wait at least 60 seconds after startup for full stabilization
+                clock_ticks_ % 30 == 0 && // Every 30 seconds
+                motor_control_task_handle_ != nullptr) {
+                TriggerMotorControl();
+            }
+
+            // Handle motor actions for device state changes (wake up, listening, speaking)
+            static DeviceState last_state = kDeviceStateUnknown;
+            DeviceState current_state = GetDeviceState();
+
+            if (current_state != last_state) {
+                // Set motor action flags instead of calling functions directly
+                switch (current_state) {
+                    case kDeviceStateListening:
+                        ESP_LOGI("Application", "设备状态变化: 唤醒 - 标记电机动作");
+                        motor_action_pending_ = true;
+                        motor_action_type_ = 1; // wake action
+                        break;
+                    case kDeviceStateSpeaking:
+                        ESP_LOGI("Application", "设备状态变化: 说话 - 标记电机动作");
+                        motor_action_pending_ = true;
+                        motor_action_type_ = 2; // speak action
+                        break;
+                    default:
+                        break;
+                }
+
+                last_state = current_state;
+            }
+
+            // Execute pending motor actions
+            if (motor_action_pending_ && motor_control_task_handle_ != nullptr) {
+                if (motor_action_type_ == 1) {
+                    ESP_LOGI("Application", "执行唤醒电机动作");
+                    TriggerMotorEmotion(1); // Wake action
+                } else if (motor_action_type_ == 2) {
+                    ESP_LOGI("Application", "执行说话电机动作");
+                    TriggerMotorEmotion(2); // Speak action
+                }
+                motor_action_pending_ = false;
+                motor_action_type_ = 0;
             }
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
@@ -474,6 +538,18 @@ void Application::CheckNewVersion() {
                 break;
             }
         }
+    }
+
+    // Create motor control queue and task after full initialization
+    motor_control_queue_ = xQueueCreate(5, sizeof(int)); // Queue for motor commands
+    if (motor_control_queue_ != nullptr) {
+        xTaskCreate([](void* arg) {
+            auto* app = static_cast<Application*>(arg);
+            app->MotorControlTask();
+        }, "motor_ctrl", 4096, this, tskIDLE_PRIORITY + 1, &motor_control_task_handle_);
+        ESP_LOGI("Application", "电机控制任务已创建");
+    } else {
+        ESP_LOGE("Application", "创建电机控制队列失败");
     }
 }
 
@@ -1069,3 +1145,162 @@ void Application::ResetProtocol() {
     });
 }
 
+void Application::MotorControlTask() {
+    ESP_LOGI("Application", "电机控制任务已启动");
+
+    while (true) {
+        int command;
+        // Wait for motor control commands with timeout
+        if (xQueueReceive(motor_control_queue_, &command, pdMS_TO_TICKS(1000)) == pdTRUE) {
+            // 直接实现简单的电机控制，避免复杂的对象调用链
+            static bool gpio_initialized = false;
+
+            // 初始化GPIO（只执行一次）
+            if (!gpio_initialized) {
+                // 配置电机控制GPIO引脚 (使用config.h中定义的引脚)
+                gpio_config_t io_conf = {};
+                io_conf.intr_type = GPIO_INTR_DISABLE;
+                io_conf.mode = GPIO_MODE_OUTPUT;
+                io_conf.pin_bit_mask = (1ULL << 8) | (1ULL << 19) | (1ULL << 20) | (1ULL << 3); // LF, LB, RF, RB
+                io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+                io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+
+                if (gpio_config(&io_conf) == ESP_OK) {
+                    gpio_initialized = true;
+                    ESP_LOGI("Application", "电机GPIO初始化成功");
+                } else {
+                    ESP_LOGE("Application", "电机GPIO初始化失败");
+                    return;
+                }
+            }
+
+            if (gpio_initialized) {
+                // 根据命令类型执行不同的动作
+                if (command == 1) { // 情感动作（唤醒/说话）
+                    ESP_LOGI("Application", "执行情感电机动作");
+                    // 唤醒动作：前进300ms
+                    gpio_set_level(GPIO_NUM_8, 1);  // LF
+                    gpio_set_level(GPIO_NUM_19, 0); // LB
+                    gpio_set_level(GPIO_NUM_20, 1); // RF
+                    gpio_set_level(GPIO_NUM_3, 0);  // RB
+                    vTaskDelay(pdMS_TO_TICKS(300));
+                    gpio_set_level(GPIO_NUM_8, 0);
+                    gpio_set_level(GPIO_NUM_19, 0);
+                    gpio_set_level(GPIO_NUM_20, 0);
+                    gpio_set_level(GPIO_NUM_3, 0);
+                    ESP_LOGI("Application", "情感电机动作完成");
+                } else { // 随机空闲动作
+                    ESP_LOGI("Application", "收到电机控制命令，正在执行简单电机动作");
+
+                    // 30%概率执行动作，70%概率保持静止
+                    if (esp_random() % 100 < 30) {
+                        // 生成随机动作 (0-8)
+                        int random_action = esp_random() % 9;
+                        int random_duration = 200 + (esp_random() % 400); // 200-600ms，更长的动作时间
+
+                        // 简单的电机控制逻辑 (LF=8, LB=19, RF=20, RB=3)
+                        switch (random_action) {
+                            case 0: // STOP
+                                gpio_set_level(GPIO_NUM_8, 0);  // LF
+                                gpio_set_level(GPIO_NUM_19, 0); // LB
+                                gpio_set_level(GPIO_NUM_20, 0); // RF
+                                gpio_set_level(GPIO_NUM_3, 0);  // RB
+                                ESP_LOGI("Application", "电机动作: 停止");
+                                break;
+                            case 1: // FORWARD
+                                gpio_set_level(GPIO_NUM_8, 1);  // LF
+                                gpio_set_level(GPIO_NUM_19, 0); // LB
+                                gpio_set_level(GPIO_NUM_20, 1); // RF
+                                gpio_set_level(GPIO_NUM_3, 0);  // RB
+                                vTaskDelay(pdMS_TO_TICKS(random_duration));
+                                gpio_set_level(GPIO_NUM_8, 0);
+                                gpio_set_level(GPIO_NUM_19, 0);
+                                gpio_set_level(GPIO_NUM_20, 0);
+                                gpio_set_level(GPIO_NUM_3, 0);
+                                ESP_LOGI("Application", "电机动作: 前进 %dms", random_duration);
+                                break;
+                            case 2: // BACKWARD
+                                gpio_set_level(GPIO_NUM_8, 0);  // LF
+                                gpio_set_level(GPIO_NUM_19, 1); // LB
+                                gpio_set_level(GPIO_NUM_20, 0); // RF
+                                gpio_set_level(GPIO_NUM_3, 1);  // RB
+                                vTaskDelay(pdMS_TO_TICKS(random_duration));
+                                gpio_set_level(GPIO_NUM_8, 0);
+                                gpio_set_level(GPIO_NUM_19, 0);
+                                gpio_set_level(GPIO_NUM_20, 0);
+                                gpio_set_level(GPIO_NUM_3, 0);
+                                ESP_LOGI("Application", "电机动作: 后退 %dms", random_duration);
+                                break;
+                            case 3: // LEFT
+                                gpio_set_level(GPIO_NUM_8, 0);  // LF
+                                gpio_set_level(GPIO_NUM_19, 1); // LB
+                                gpio_set_level(GPIO_NUM_20, 1); // RF
+                                gpio_set_level(GPIO_NUM_3, 0);  // RB
+                                vTaskDelay(pdMS_TO_TICKS(random_duration));
+                                gpio_set_level(GPIO_NUM_8, 0);
+                                gpio_set_level(GPIO_NUM_19, 0);
+                                gpio_set_level(GPIO_NUM_20, 0);
+                                gpio_set_level(GPIO_NUM_3, 0);
+                                ESP_LOGI("Application", "电机动作: 左转 %dms", random_duration);
+                                break;
+                            case 4: // RIGHT
+                                gpio_set_level(GPIO_NUM_8, 1);  // LF
+                                gpio_set_level(GPIO_NUM_19, 0); // LB
+                                gpio_set_level(GPIO_NUM_20, 0); // RF
+                                gpio_set_level(GPIO_NUM_3, 1);  // RB
+                                vTaskDelay(pdMS_TO_TICKS(random_duration));
+                                gpio_set_level(GPIO_NUM_8, 0);
+                                gpio_set_level(GPIO_NUM_19, 0);
+                                gpio_set_level(GPIO_NUM_20, 0);
+                                gpio_set_level(GPIO_NUM_3, 0);
+                                ESP_LOGI("Application", "电机动作: 右转 %dms", random_duration);
+                                break;
+                            default:
+                                // 其他动作保持停止状态
+                                gpio_set_level(GPIO_NUM_8, 0);
+                                gpio_set_level(GPIO_NUM_19, 0);
+                                gpio_set_level(GPIO_NUM_20, 0);
+                                gpio_set_level(GPIO_NUM_3, 0);
+                                ESP_LOGI("Application", "电机动作: 停止 (默认)");
+                                break;
+                        }
+
+                        ESP_LOGD("Application", "电机控制命令执行完成");
+                    } else {
+                        // 70%概率保持静止
+                        ESP_LOGD("Application", "电机保持静止 (70%概率)");
+                    }
+                }
+            }
+        }
+
+        // Small delay to prevent busy waiting
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+}
+
+void Application::TriggerMotorControl() {
+    int command = 0; // 0: idle random movement, 1: emotion action
+    if (motor_control_queue_ != nullptr) {
+        if (xQueueSend(motor_control_queue_, &command, 0) == pdTRUE) { // Non-blocking send
+            ESP_LOGD("Application", "电机控制命令已发送到队列");
+        } else {
+            ESP_LOGW("Application", "发送电机控制命令失败，队列已满");
+        }
+    } else {
+        ESP_LOGW("Application", "电机控制队列不可用");
+    }
+}
+
+void Application::TriggerMotorEmotion(int emotion_type) {
+    int command = emotion_type; // 1: wake, 2: speak, etc.
+    if (motor_control_queue_ != nullptr) {
+        if (xQueueSend(motor_control_queue_, &command, 0) == pdTRUE) { // Non-blocking send
+            ESP_LOGD("Application", "电机情感命令已发送到队列: %d", emotion_type);
+        } else {
+            ESP_LOGW("Application", "发送电机情感命令失败，队列已满");
+        }
+    } else {
+        ESP_LOGW("Application", "电机控制队列不可用");
+    }
+}

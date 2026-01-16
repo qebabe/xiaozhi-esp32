@@ -112,6 +112,11 @@ public:
     AecMode GetAecMode() const { return aec_mode_; }
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
+
+    // Motor control
+    void MotorControlTask();
+    void TriggerMotorControl();
+    void TriggerMotorEmotion(int emotion_type);
     
     /**
      * Reset protocol resources (thread-safe)
@@ -142,6 +147,10 @@ private:
     bool play_popup_on_listening_ = false;  // Flag to play popup sound after state changes to listening
     int clock_ticks_ = 0;
     TaskHandle_t activation_task_handle_ = nullptr;
+
+    // Motor control task
+    QueueHandle_t motor_control_queue_ = nullptr;
+    TaskHandle_t motor_control_task_handle_ = nullptr;
 
 
     // Event handlers

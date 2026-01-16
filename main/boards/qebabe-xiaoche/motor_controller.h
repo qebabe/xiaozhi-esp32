@@ -7,6 +7,8 @@
 #include <esp_log.h>
 #include <esp_random.h>
 
+#define MOTOR_LOG_TAG "MotorController"
+
 // Motor control actions
 #define MOTOR_STOP       0
 #define MOTOR_BACKWARD   1
@@ -88,6 +90,22 @@ public:
 
     // Execute motor action with timing
     void ExecuteAction(int action, int on_time_ms, int off_time_ms, int repeat_count) {
+        const char* action_name = "UNKNOWN";
+        switch (action) {
+            case MOTOR_STOP: action_name = "STOP"; break;
+            case MOTOR_FORWARD: action_name = "FORWARD"; break;
+            case MOTOR_BACKWARD: action_name = "BACKWARD"; break;
+            case MOTOR_FULL_LEFT: action_name = "FULL_LEFT"; break;
+            case MOTOR_FULL_RIGHT: action_name = "FULL_RIGHT"; break;
+            case MOTOR_FORWARD_LEFT: action_name = "FORWARD_LEFT"; break;
+            case MOTOR_FORWARD_RIGHT: action_name = "FORWARD_RIGHT"; break;
+            case MOTOR_BACK_LEFT: action_name = "BACK_LEFT"; break;
+            case MOTOR_BACK_RIGHT: action_name = "BACK_RIGHT"; break;
+        }
+
+        ESP_LOGI(MOTOR_LOG_TAG, "电机动作: %s, 运行:%d毫秒, 停止:%d毫秒, 重复:%d次",
+                 action_name, on_time_ms, off_time_ms, repeat_count);
+
         for (int i = 0; i < repeat_count; i++) {
             // Execute action
             switch (action) {
@@ -138,6 +156,7 @@ public:
 
     // Wake up animation - excited movement
     void WakeUpAnimation() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 唤醒 - 兴奋的动作");
         // Quick forward-backward movement
         ExecuteAction(MOTOR_FORWARD, 100, 50, 2);
         ExecuteAction(MOTOR_BACKWARD, 100, 50, 2);
@@ -145,46 +164,57 @@ public:
         ExecuteAction(MOTOR_FULL_LEFT, 200, 100, 3);
         // Final stop
         Stop();
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 唤醒完成");
     }
 
     // Happy animation - playful movements
     void HappyAnimation() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 开心 - 欢快的舞蹈动作");
         // Dance-like movements
         ExecuteAction(MOTOR_FORWARD_LEFT, 150, 100, 2);
         ExecuteAction(MOTOR_FORWARD_RIGHT, 150, 100, 2);
         ExecuteAction(MOTOR_BACK_LEFT, 150, 100, 2);
         ExecuteAction(MOTOR_BACK_RIGHT, 150, 100, 2);
         Stop();
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 开心完成");
     }
 
     // Sad animation - slow movements
     void SadAnimation() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 悲伤 - 缓慢的后退动作");
         // Slow backward movement
         ExecuteAction(MOTOR_BACKWARD, 300, 200, 3);
         Stop();
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 悲伤完成");
     }
 
     // Thinking animation - small movements
     void ThinkingAnimation() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 思考 - 轻微的左右摆动");
         // Small left-right movements
         ExecuteAction(MOTOR_FORWARD_LEFT, 100, 150, 2);
         ExecuteAction(MOTOR_FORWARD_RIGHT, 100, 150, 2);
         Stop();
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 思考完成");
     }
 
     // Listening animation - gentle swaying
     void ListeningAnimation() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 倾听 - 温柔的左右摇摆");
         // Gentle side-to-side movement
         ExecuteAction(MOTOR_FULL_LEFT, 200, 300, 2);
         ExecuteAction(MOTOR_FULL_RIGHT, 200, 300, 2);
         Stop();
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 倾听完成");
     }
 
     // Speaking animation - forward movement
     void SpeakingAnimation() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 说话 - 前进冲刺");
         // Forward thrust
         ExecuteAction(MOTOR_FORWARD, 150, 100, 3);
         Stop();
+        ESP_LOGI(MOTOR_LOG_TAG, "动画: 说话完成");
     }
 
     // Random movement for idle state
@@ -192,6 +222,15 @@ public:
         int random_action = esp_random() % 9; // 0-8
         int random_on_time = 50 + (esp_random() % 100); // 50-150ms
         int random_off_time = 100 + (esp_random() % 200); // 100-300ms
+
+        const char* action_names[] = {
+            "STOP", "BACKWARD", "FORWARD", "FULL_LEFT", "FULL_RIGHT",
+            "BACK_LEFT", "BACK_RIGHT", "FORWARD_LEFT", "FORWARD_RIGHT"
+        };
+
+        ESP_LOGI(MOTOR_LOG_TAG, "随机动作: %s (运行:%d毫秒, 停止:%d毫秒)",
+                 action_names[random_action], random_on_time, random_off_time);
+
         ExecuteAction(random_action, random_on_time, random_off_time, 1);
     }
 };

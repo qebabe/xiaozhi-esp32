@@ -224,43 +224,113 @@ public:
 
     // Motor control interface for different emotions and actions
     void OnWakeUp() {
-        if (motor_controller_) {
-            motor_controller_->WakeUpAnimation();
-        }
+        ESP_LOGI(TAG, "电机情感: 唤醒被触发 - 执行兴奋动作");
+        PerformMotorAction(1, 300); // FORWARD for 300ms - 兴奋的前进动作
     }
 
     void OnHappy() {
-        if (motor_controller_) {
-            motor_controller_->HappyAnimation();
-        }
+        ESP_LOGI(TAG, "电机情感: 开心被触发 - 执行欢快动作");
+        PerformMotorAction(1, 200); // FORWARD for 200ms - 简单的开心动作
+        vTaskDelay(pdMS_TO_TICKS(100));
+        PerformMotorAction(3, 200); // LEFT for 200ms - 左转表示开心
     }
 
     void OnSad() {
-        if (motor_controller_) {
-            motor_controller_->SadAnimation();
-        }
+        ESP_LOGI(TAG, "电机情感: 悲伤被触发 - 执行缓慢动作");
+        PerformMotorAction(2, 400); // BACKWARD for 400ms - 缓慢后退表示悲伤
     }
 
     void OnThinking() {
-        if (motor_controller_) {
-            motor_controller_->ThinkingAnimation();
-        }
+        ESP_LOGI(TAG, "电机情感: 思考被触发 - 执行轻微动作");
+        PerformMotorAction(3, 150); // LEFT for 150ms - 轻微左转表示思考
+        vTaskDelay(pdMS_TO_TICKS(200));
+        PerformMotorAction(4, 150); // RIGHT for 150ms - 右转表示思考
     }
 
     void OnListening() {
-        if (motor_controller_) {
-            motor_controller_->ListeningAnimation();
-        }
+        ESP_LOGI(TAG, "电机情感: 倾听被触发 - 执行轻柔动作");
+        PerformMotorAction(3, 100); // LEFT for 100ms - 轻柔左转
+        vTaskDelay(pdMS_TO_TICKS(150));
+        PerformMotorAction(4, 100); // RIGHT for 100ms - 右转表示倾听
     }
 
     void OnSpeaking() {
-        if (motor_controller_) {
-            motor_controller_->SpeakingAnimation();
+        ESP_LOGI(TAG, "电机情感: 说话被触发 - 执行前进动作");
+        PerformMotorAction(1, 250); // FORWARD for 250ms - 前进表示说话
+    }
+
+    // 简单的电机动作执行函数
+    void PerformMotorAction(int action, int duration_ms) {
+        static bool gpio_initialized = false;
+
+        // 初始化GPIO（只执行一次）
+        if (!gpio_initialized) {
+            gpio_config_t io_conf = {};
+            io_conf.intr_type = GPIO_INTR_DISABLE;
+            io_conf.mode = GPIO_MODE_OUTPUT;
+            io_conf.pin_bit_mask = (1ULL << 8) | (1ULL << 19) | (1ULL << 20) | (1ULL << 3);
+            io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+            io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+
+            if (gpio_config(&io_conf) == ESP_OK) {
+                gpio_initialized = true;
+            }
+        }
+
+        if (!gpio_initialized) return;
+
+        // 执行电机动作 (LF=8, LB=19, RF=20, RB=3)
+        switch (action) {
+            case 1: // FORWARD
+                gpio_set_level(GPIO_NUM_8, 1);  // LF
+                gpio_set_level(GPIO_NUM_19, 0); // LB
+                gpio_set_level(GPIO_NUM_20, 1); // RF
+                gpio_set_level(GPIO_NUM_3, 0);  // RB
+                vTaskDelay(pdMS_TO_TICKS(duration_ms));
+                gpio_set_level(GPIO_NUM_8, 0);
+                gpio_set_level(GPIO_NUM_19, 0);
+                gpio_set_level(GPIO_NUM_20, 0);
+                gpio_set_level(GPIO_NUM_3, 0);
+                break;
+            case 2: // BACKWARD
+                gpio_set_level(GPIO_NUM_8, 0);  // LF
+                gpio_set_level(GPIO_NUM_19, 1); // LB
+                gpio_set_level(GPIO_NUM_20, 0); // RF
+                gpio_set_level(GPIO_NUM_3, 1);  // RB
+                vTaskDelay(pdMS_TO_TICKS(duration_ms));
+                gpio_set_level(GPIO_NUM_8, 0);
+                gpio_set_level(GPIO_NUM_19, 0);
+                gpio_set_level(GPIO_NUM_20, 0);
+                gpio_set_level(GPIO_NUM_3, 0);
+                break;
+            case 3: // LEFT
+                gpio_set_level(GPIO_NUM_8, 0);  // LF
+                gpio_set_level(GPIO_NUM_19, 1); // LB
+                gpio_set_level(GPIO_NUM_20, 1); // RF
+                gpio_set_level(GPIO_NUM_3, 0);  // RB
+                vTaskDelay(pdMS_TO_TICKS(duration_ms));
+                gpio_set_level(GPIO_NUM_8, 0);
+                gpio_set_level(GPIO_NUM_19, 0);
+                gpio_set_level(GPIO_NUM_20, 0);
+                gpio_set_level(GPIO_NUM_3, 0);
+                break;
+            case 4: // RIGHT
+                gpio_set_level(GPIO_NUM_8, 1);  // LF
+                gpio_set_level(GPIO_NUM_19, 0); // LB
+                gpio_set_level(GPIO_NUM_20, 0); // RF
+                gpio_set_level(GPIO_NUM_3, 1);  // RB
+                vTaskDelay(pdMS_TO_TICKS(duration_ms));
+                gpio_set_level(GPIO_NUM_8, 0);
+                gpio_set_level(GPIO_NUM_19, 0);
+                gpio_set_level(GPIO_NUM_20, 0);
+                gpio_set_level(GPIO_NUM_3, 0);
+                break;
         }
     }
 
     void OnIdle() {
         if (motor_controller_ && (esp_random() % 100) < 5) { // 5% chance for random movement
+            ESP_LOGI(TAG, "电机空闲: 随机动作被触发 (5%概率)");
             motor_controller_->RandomMovement();
         }
     }
