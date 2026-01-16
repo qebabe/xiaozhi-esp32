@@ -18,8 +18,32 @@
 #include <font_awesome.h>
 
 #define TAG "Application"
+// 包含板级引脚配置（由选定的 board 提供的 config.h）
+// 使用 __has_include 避免在静态分析时因文件不可用导致错误
+#if defined(__has_include)
+#  if __has_include("config.h")
+#    include "config.h"
+#  endif
+#else
+/* __has_include not available; rely on build system to provide config.h */
+#endif
+
+// 如果没有提供 BOARD 层的 MOTOR_* 定义，提供默认值以便本文件在不同环境下也能编译
+#ifndef MOTOR_LF_GPIO
+#define MOTOR_LF_GPIO GPIO_NUM_8
+#define MOTOR_LB_GPIO GPIO_NUM_19
+#define MOTOR_RF_GPIO GPIO_NUM_20
+#define MOTOR_RB_GPIO GPIO_NUM_3
+#endif
 
 // Test comment to trigger reanalysis
+// 说明（中文）：
+// 该文件实现设备的主应用逻辑，包括：
+// - 设备初始化（显示、音频、网络、OTA 等）
+// - 主事件循环（处理定时、网络、音频、状态变化等）
+// - 协议初始化与消息处理（MQTT/WebSocket）
+// - 将服务器下发的情绪（emotion）映射为电机动作并调度执行
+// 注：电机动作通过消息队列发送到 `MotorControlTask` 在单独任务中执行，避免阻塞主循环。
 
 // Motor control functions - only available on qebabe-xiaoche board
 // These are declared as weak externs and will be resolved at link time
@@ -38,6 +62,10 @@ static volatile int motor_action_type_ = 0; // 0: none, 1: wake, 2: speak
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
+
+    // 构造函数说明（中文）：
+    // 创建事件组、定时器等基础资源。实际的电机队列和任务在 Initialize() 中创建，
+    // 以保证硬件和系统资源已完成初始化。
 
 #if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
 #error "CONFIG_USE_DEVICE_AEC and CONFIG_USE_SERVER_AEC cannot be enabled at the same time"
@@ -96,6 +124,14 @@ void Application::Initialize() {
 
     // Print board name/version info
     display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
+
+    // Initialize 说明（中文）：
+    // 该函数负责完成设备的整体初始化：
+    // 1. 初始化显示和音频服务
+    // 2. 注册音频回调（唤醒词、VAD 等）
+    // 3. 启动时钟定时器以更新状态栏
+    // 4. 初始化 MCP 服务工具（调试/远程控制）
+    // 5. 设置网络事件回调并异步启动网络
 
     // Setup the audio service
     auto codec = board.GetAudioCodec();
@@ -601,15 +637,23 @@ void Application::InitializeProtocol() {
         });
     });
     
+    // OnIncomingJson 回调（中文说明）：
+    // 该回调处理来自服务器的 JSON 消息，消息类型包括：
+    // - tts: 文本到语音控制（开始/停止/句子开始）
+    // - stt: 识别结果（显示用户文本）
+    // - llm: 语言模型输出，包含 emotion 字段，用于驱动电机动作和显示表情
+    // - mcp: MCP 协议消息
+    // - system: 系统命令（例如 reboot）
+    // - alert: 弹出通知（包含 status/message/emotion）
     protocol_->OnIncomingJson([this, display](const cJSON* root) {
-        // Output raw JSON data to serial console
+        // 将收到的原始 JSON 打印到串口，便于调试
         char* json_str = cJSON_PrintUnformatted(root);
         if (json_str != nullptr) {
             ESP_LOGI(TAG, "Received JSON message: %s", json_str);
             cJSON_free(json_str);
         }
 
-        // Parse JSON data
+        // 开始解析 JSON 字段 type 并分发处理逻辑
         auto type = cJSON_GetObjectItem(root, "type");
         if (strcmp(type->valuestring, "tts") == 0) {
             auto state = cJSON_GetObjectItem(root, "state");
@@ -1228,7 +1272,7 @@ void Application::MotorControlTask() {
                 gpio_config_t io_conf = {};
                 io_conf.intr_type = GPIO_INTR_DISABLE;
                 io_conf.mode = GPIO_MODE_OUTPUT;
-                io_conf.pin_bit_mask = (1ULL << 8) | (1ULL << 19) | (1ULL << 20) | (1ULL << 3); // LF, LB, RF, RB
+                io_conf.pin_bit_mask = (1ULL << MOTOR_LF_GPIO) | (1ULL << MOTOR_LB_GPIO) | (1ULL << MOTOR_RF_GPIO) | (1ULL << MOTOR_RB_GPIO); // LF, LB, RF, RB
                 io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
                 io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
 
@@ -1241,103 +1285,114 @@ void Application::MotorControlTask() {
                 }
             }
 
+            // MotorControlTask 说明（中文）：
+            // 该任务在单独线程中运行，负责接收并执行来自主任务的电机命令。
+            // 命令约定（在 InitializeProtocol 中也有说明）：
+            // 0: 随机空闲动作（或无动作）
+            // 1: 短促向前（温柔 / 开心）
+            // 2: 短促向后（悲伤 / 哭）
+            // 3: 左右快摆（顽皮 / 笑）
+            // 4: 轻点/点头（喜欢 / 自信 / 酷）
+            // 5: 轻微倾斜/停顿（困惑 / 尴尬 / 思考）
+            // 6: 突然/强烈动作（惊讶 / 震惊 / 生气）
+
             if (gpio_initialized) {
                 // 根据命令类型执行不同的动作
                 switch (command) {
                     case 1: { // 短促向前 (温柔 / 开心)
                         ESP_LOGI("Application", "电机动作: 短促向前 (cmd=1)");
-                        gpio_set_level(GPIO_NUM_8, 1);  // LF
-                        gpio_set_level(GPIO_NUM_19, 0); // LB
-                        gpio_set_level(GPIO_NUM_20, 1); // RF
-                        gpio_set_level(GPIO_NUM_3, 0);  // RB
+                        gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
+                        gpio_set_level(MOTOR_LB_GPIO, 0); // LB
+                        gpio_set_level(MOTOR_RF_GPIO, 1); // RF
+                        gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
                         vTaskDelay(pdMS_TO_TICKS(300));
-                        gpio_set_level(GPIO_NUM_8, 0);
-                        gpio_set_level(GPIO_NUM_19, 0);
-                        gpio_set_level(GPIO_NUM_20, 0);
-                        gpio_set_level(GPIO_NUM_3, 0);
+                        gpio_set_level(MOTOR_LF_GPIO, 0);
+                        gpio_set_level(MOTOR_LB_GPIO, 0);
+                        gpio_set_level(MOTOR_RF_GPIO, 0);
+                        gpio_set_level(MOTOR_RB_GPIO, 0);
                         break;
                     }
                     case 2: { // 短促向后 (悲伤 / 哭)
                         ESP_LOGI("Application", "电机动作: 短促向后 (cmd=2)");
-                        gpio_set_level(GPIO_NUM_8, 0);  // LF
-                        gpio_set_level(GPIO_NUM_19, 1); // LB
-                        gpio_set_level(GPIO_NUM_20, 0); // RF
-                        gpio_set_level(GPIO_NUM_3, 1);  // RB
+                        gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
+                        gpio_set_level(MOTOR_LB_GPIO, 1); // LB
+                        gpio_set_level(MOTOR_RF_GPIO, 0); // RF
+                        gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
                         vTaskDelay(pdMS_TO_TICKS(300));
-                        gpio_set_level(GPIO_NUM_8, 0);
-                        gpio_set_level(GPIO_NUM_19, 0);
-                        gpio_set_level(GPIO_NUM_20, 0);
-                        gpio_set_level(GPIO_NUM_3, 0);
+                        gpio_set_level(MOTOR_LF_GPIO, 0);
+                        gpio_set_level(MOTOR_LB_GPIO, 0);
+                        gpio_set_level(MOTOR_RF_GPIO, 0);
+                        gpio_set_level(MOTOR_RB_GPIO, 0);
                         break;
                     }
                     case 3: { // 左右快摆 (顽皮 / 笑)
                         ESP_LOGI("Application", "电机动作: 左右快摆 (cmd=3)");
                         for (int i = 0; i < 2; ++i) {
                             // 左摆
-                            gpio_set_level(GPIO_NUM_8, 0);
-                            gpio_set_level(GPIO_NUM_19, 1);
-                            gpio_set_level(GPIO_NUM_20, 1);
-                            gpio_set_level(GPIO_NUM_3, 0);
+                            gpio_set_level(MOTOR_LF_GPIO, 0);
+                            gpio_set_level(MOTOR_LB_GPIO, 1);
+                            gpio_set_level(MOTOR_RF_GPIO, 1);
+                            gpio_set_level(MOTOR_RB_GPIO, 0);
                             vTaskDelay(pdMS_TO_TICKS(150));
                             // 右摆
-                            gpio_set_level(GPIO_NUM_8, 1);
-                            gpio_set_level(GPIO_NUM_19, 0);
-                            gpio_set_level(GPIO_NUM_20, 0);
-                            gpio_set_level(GPIO_NUM_3, 1);
+                            gpio_set_level(MOTOR_LF_GPIO, 1);
+                            gpio_set_level(MOTOR_LB_GPIO, 0);
+                            gpio_set_level(MOTOR_RF_GPIO, 0);
+                            gpio_set_level(MOTOR_RB_GPIO, 1);
                             vTaskDelay(pdMS_TO_TICKS(150));
                         }
                         // 停止
-                        gpio_set_level(GPIO_NUM_8, 0);
-                        gpio_set_level(GPIO_NUM_19, 0);
-                        gpio_set_level(GPIO_NUM_20, 0);
-                        gpio_set_level(GPIO_NUM_3, 0);
+                        gpio_set_level(MOTOR_LF_GPIO, 0);
+                        gpio_set_level(MOTOR_LB_GPIO, 0);
+                        gpio_set_level(MOTOR_RF_GPIO, 0);
+                        gpio_set_level(MOTOR_RB_GPIO, 0);
                         break;
                     }
                     case 4: { // 轻点/点头 (喜欢 / 自信 / 酷)
                         ESP_LOGI("Application", "电机动作: 轻点/点头 (cmd=4)");
                         // 前进短促 + 后退短促 表示点头式动作
-                        gpio_set_level(GPIO_NUM_8, 1);
-                        gpio_set_level(GPIO_NUM_20, 1);
+                        gpio_set_level(MOTOR_LF_GPIO, 1);
+                        gpio_set_level(MOTOR_RF_GPIO, 1);
                         vTaskDelay(pdMS_TO_TICKS(180));
-                        gpio_set_level(GPIO_NUM_8, 0);
-                        gpio_set_level(GPIO_NUM_20, 0);
+                        gpio_set_level(MOTOR_LF_GPIO, 0);
+                        gpio_set_level(MOTOR_RF_GPIO, 0);
                         vTaskDelay(pdMS_TO_TICKS(80));
-                        gpio_set_level(GPIO_NUM_19, 1);
-                        gpio_set_level(GPIO_NUM_3, 1);
+                        gpio_set_level(MOTOR_LB_GPIO, 1);
+                        gpio_set_level(MOTOR_RB_GPIO, 1);
                         vTaskDelay(pdMS_TO_TICKS(150));
-                        gpio_set_level(GPIO_NUM_19, 0);
-                        gpio_set_level(GPIO_NUM_3, 0);
+                        gpio_set_level(MOTOR_LB_GPIO, 0);
+                        gpio_set_level(MOTOR_RB_GPIO, 0);
                         break;
                     }
                     case 5: { // 轻微倾斜/停顿 (困惑 / 尴尬 / 思考)
                         ESP_LOGI("Application", "电机动作: 轻微倾斜/停顿 (cmd=5)");
                         // 小幅度一侧动作表示思考/困惑
-                        gpio_set_level(GPIO_NUM_8, 1);
-                        gpio_set_level(GPIO_NUM_19, 0);
-                        gpio_set_level(GPIO_NUM_20, 0);
-                        gpio_set_level(GPIO_NUM_3, 0);
+                        gpio_set_level(MOTOR_LF_GPIO, 1);
+                        gpio_set_level(MOTOR_LB_GPIO, 0);
+                        gpio_set_level(MOTOR_RF_GPIO, 0);
+                        gpio_set_level(MOTOR_RB_GPIO, 0);
                         vTaskDelay(pdMS_TO_TICKS(200));
-                        gpio_set_level(GPIO_NUM_8, 0);
+                        gpio_set_level(MOTOR_LF_GPIO, 0);
                         vTaskDelay(pdMS_TO_TICKS(100));
                         break;
                     }
                     case 6: { // 突然/强烈动作 (惊讶 / 震惊 / 生气)
                         ESP_LOGI("Application", "电机动作: 强烈动作 (cmd=6)");
                         // 强烈前冲并快速旋转
-                        gpio_set_level(GPIO_NUM_8, 1);
-                        gpio_set_level(GPIO_NUM_20, 1);
+                        gpio_set_level(MOTOR_LF_GPIO, 1);
+                        gpio_set_level(MOTOR_RF_GPIO, 1);
                         vTaskDelay(pdMS_TO_TICKS(350));
                         // 快速右转
-                        gpio_set_level(GPIO_NUM_8, 1);
-                        gpio_set_level(GPIO_NUM_19, 0);
-                        gpio_set_level(GPIO_NUM_20, 0);
-                        gpio_set_level(GPIO_NUM_3, 1);
+                        gpio_set_level(MOTOR_LF_GPIO, 1);
+                        gpio_set_level(MOTOR_LB_GPIO, 0);
+                        gpio_set_level(MOTOR_RF_GPIO, 0);
+                        gpio_set_level(MOTOR_RB_GPIO, 1);
                         vTaskDelay(pdMS_TO_TICKS(250));
                         // 停止
-                        gpio_set_level(GPIO_NUM_8, 0);
-                        gpio_set_level(GPIO_NUM_19, 0);
-                        gpio_set_level(GPIO_NUM_20, 0);
-                        gpio_set_level(GPIO_NUM_3, 0);
+                        gpio_set_level(MOTOR_LF_GPIO, 0);
+                        gpio_set_level(MOTOR_LB_GPIO, 0);
+                        gpio_set_level(MOTOR_RF_GPIO, 0);
+                        gpio_set_level(MOTOR_RB_GPIO, 0);
                         break;
                     }
                     default: { // 随机空闲动作（保持原有行为）
@@ -1352,66 +1407,66 @@ void Application::MotorControlTask() {
                             // 简单的电机控制逻辑 (LF=8, LB=19, RF=20, RB=3)
                             switch (random_action) {
                                 case 0: // STOP
-                                    gpio_set_level(GPIO_NUM_8, 0);  // LF
-                                    gpio_set_level(GPIO_NUM_19, 0); // LB
-                                    gpio_set_level(GPIO_NUM_20, 0); // RF
-                                    gpio_set_level(GPIO_NUM_3, 0);  // RB
+                                    gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
+                                    gpio_set_level(MOTOR_LB_GPIO, 0); // LB
+                                    gpio_set_level(MOTOR_RF_GPIO, 0); // RF
+                                    gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
                                     ESP_LOGI("Application", "电机动作: 停止");
                                     break;
                                 case 1: // FORWARD
-                                    gpio_set_level(GPIO_NUM_8, 1);  // LF
-                                    gpio_set_level(GPIO_NUM_19, 0); // LB
-                                    gpio_set_level(GPIO_NUM_20, 1); // RF
-                                    gpio_set_level(GPIO_NUM_3, 0);  // RB
+                                    gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
+                                    gpio_set_level(MOTOR_LB_GPIO, 0); // LB
+                                    gpio_set_level(MOTOR_RF_GPIO, 1); // RF
+                                    gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
                                     vTaskDelay(pdMS_TO_TICKS(random_duration));
-                                    gpio_set_level(GPIO_NUM_8, 0);
-                                    gpio_set_level(GPIO_NUM_19, 0);
-                                    gpio_set_level(GPIO_NUM_20, 0);
-                                    gpio_set_level(GPIO_NUM_3, 0);
+                                    gpio_set_level(MOTOR_LF_GPIO, 0);
+                                    gpio_set_level(MOTOR_LB_GPIO, 0);
+                                    gpio_set_level(MOTOR_RF_GPIO, 0);
+                                    gpio_set_level(MOTOR_RB_GPIO, 0);
                                     ESP_LOGI("Application", "电机动作: 前进 %dms", random_duration);
                                     break;
                                 case 2: // BACKWARD
-                                    gpio_set_level(GPIO_NUM_8, 0);  // LF
-                                    gpio_set_level(GPIO_NUM_19, 1); // LB
-                                    gpio_set_level(GPIO_NUM_20, 0); // RF
-                                    gpio_set_level(GPIO_NUM_3, 1);  // RB
+                                    gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
+                                    gpio_set_level(MOTOR_LB_GPIO, 1); // LB
+                                    gpio_set_level(MOTOR_RF_GPIO, 0); // RF
+                                    gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
                                     vTaskDelay(pdMS_TO_TICKS(random_duration));
-                                    gpio_set_level(GPIO_NUM_8, 0);
-                                    gpio_set_level(GPIO_NUM_19, 0);
-                                    gpio_set_level(GPIO_NUM_20, 0);
-                                    gpio_set_level(GPIO_NUM_3, 0);
+                                    gpio_set_level(MOTOR_LF_GPIO, 0);
+                                    gpio_set_level(MOTOR_LB_GPIO, 0);
+                                    gpio_set_level(MOTOR_RF_GPIO, 0);
+                                    gpio_set_level(MOTOR_RB_GPIO, 0);
                                     ESP_LOGI("Application", "电机动作: 后退 %dms", random_duration);
                                     break;
                                 case 3: // LEFT
-                                    gpio_set_level(GPIO_NUM_8, 0);  // LF
-                                    gpio_set_level(GPIO_NUM_19, 1); // LB
-                                    gpio_set_level(GPIO_NUM_20, 1); // RF
-                                    gpio_set_level(GPIO_NUM_3, 0);  // RB
+                                    gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
+                                    gpio_set_level(MOTOR_LB_GPIO, 1); // LB
+                                    gpio_set_level(MOTOR_RF_GPIO, 1); // RF
+                                    gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
                                     vTaskDelay(pdMS_TO_TICKS(random_duration));
-                                    gpio_set_level(GPIO_NUM_8, 0);
-                                    gpio_set_level(GPIO_NUM_19, 0);
-                                    gpio_set_level(GPIO_NUM_20, 0);
-                                    gpio_set_level(GPIO_NUM_3, 0);
+                                    gpio_set_level(MOTOR_LF_GPIO, 0);
+                                    gpio_set_level(MOTOR_LB_GPIO, 0);
+                                    gpio_set_level(MOTOR_RF_GPIO, 0);
+                                    gpio_set_level(MOTOR_RB_GPIO, 0);
                                     ESP_LOGI("Application", "电机动作: 左转 %dms", random_duration);
                                     break;
                                 case 4: // RIGHT
-                                    gpio_set_level(GPIO_NUM_8, 1);  // LF
-                                    gpio_set_level(GPIO_NUM_19, 0); // LB
-                                    gpio_set_level(GPIO_NUM_20, 0); // RF
-                                    gpio_set_level(GPIO_NUM_3, 1);  // RB
+                                    gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
+                                    gpio_set_level(MOTOR_LB_GPIO, 0); // LB
+                                    gpio_set_level(MOTOR_RF_GPIO, 0); // RF
+                                    gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
                                     vTaskDelay(pdMS_TO_TICKS(random_duration));
-                                    gpio_set_level(GPIO_NUM_8, 0);
-                                    gpio_set_level(GPIO_NUM_19, 0);
-                                    gpio_set_level(GPIO_NUM_20, 0);
-                                    gpio_set_level(GPIO_NUM_3, 0);
+                                    gpio_set_level(MOTOR_LF_GPIO, 0);
+                                    gpio_set_level(MOTOR_LB_GPIO, 0);
+                                    gpio_set_level(MOTOR_RF_GPIO, 0);
+                                    gpio_set_level(MOTOR_RB_GPIO, 0);
                                     ESP_LOGI("Application", "电机动作: 右转 %dms", random_duration);
                                     break;
                                 default:
                                     // 其他动作保持停止状态
-                                    gpio_set_level(GPIO_NUM_8, 0);
-                                    gpio_set_level(GPIO_NUM_19, 0);
-                                    gpio_set_level(GPIO_NUM_20, 0);
-                                    gpio_set_level(GPIO_NUM_3, 0);
+                                    gpio_set_level(MOTOR_LF_GPIO, 0);
+                                    gpio_set_level(MOTOR_LB_GPIO, 0);
+                                    gpio_set_level(MOTOR_RF_GPIO, 0);
+                                    gpio_set_level(MOTOR_RB_GPIO, 0);
                                     ESP_LOGI("Application", "电机动作: 停止 (默认)");
                                     break;
                             }
@@ -1457,3 +1512,7 @@ void Application::TriggerMotorEmotion(int emotion_type) {
         ESP_LOGW("Application", "电机控制队列不可用");
     }
 }
+
+// TriggerMotorEmotion 说明（中文）：
+// 该函数将情感命令放入 motor_control_queue_，由 MotorControlTask 异步执行。
+// 通过队列方式可以保证所有电机动作在同一任务中串行执行，避免并发冲突和阻塞主线程。
