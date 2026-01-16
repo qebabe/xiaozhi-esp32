@@ -53,19 +53,13 @@
 #define DISPLAY_MIRROR_Y true
 
 
-/* ==================== 步进电机配置 ==================== */
-/** 步进电机IN1引脚 (ULN2003输入1)
- *  已调整为安全的通用GPIO，避免占用UART0/I2S等特殊引脚 */
-/* 使用数字常量避免静态分析对 GPIO_NUM_* 宏的误报 */ 
-#define STEPPER_IN1_GPIO 8
-/** 步进电机IN2引脚 (ULN2003输入2) */
-#define STEPPER_IN2_GPIO 19
-/** 步进电机IN3引脚 (ULN2003输入3) */
-#define STEPPER_IN3_GPIO 20
-/** 步进电机IN4引脚 (ULN2003输入4) */
-#define STEPPER_IN4_GPIO 3
-
 // A MCP Test: Control a lamp
 #define LAMP_GPIO GPIO_NUM_18
+
+// Motor control pins for TC1508 module (N20 motors as wheels)
+#define MOTOR_LF_GPIO GPIO_NUM_9   // Left Forward
+#define MOTOR_LB_GPIO GPIO_NUM_10  // Left Backward
+#define MOTOR_RF_GPIO GPIO_NUM_11  // Right Forward
+#define MOTOR_RB_GPIO GPIO_NUM_12   // Right Backward
 
 #endif // _BOARD_CONFIG_H_

@@ -7,10 +7,11 @@
 #include "config.h"
 #include "mcp_server.h"
 #include "lamp_controller.h"
-#include "stepper_motor_controller.h"
-#include <driver/gpio.h>
 #include "led/single_led.h"
 #include "assets/lang_config.h"
+#include "motor_controller.h"
+
+
 
 #include <esp_log.h>
 #include <driver/i2c_master.h>
@@ -23,6 +24,12 @@
 
 #define TAG "CompactWifiBoard"
 
+// Forward declaration
+class CompactWifiBoard;
+
+// Global pointer to motor controller for Application callbacks
+static CompactWifiBoard* g_motor_board = nullptr;
+
 class CompactWifiBoard : public WifiBoard {
 private:
     i2c_master_bus_handle_t display_i2c_bus_;
@@ -33,7 +40,7 @@ private:
     Button touch_button_;
     Button volume_up_button_;
     Button volume_down_button_;
-    StepperMotorController* stepper_motor_;  /**< 步进电机控制器 */
+    MotorController* motor_controller_ = nullptr;
 
     void InitializeDisplayI2c() {
         i2c_master_bus_config_t bus_config = {
@@ -104,10 +111,12 @@ private:
     }
 
     void InitializeButtons() {
-        boot_button_.OnClick([this]() {
+        boot_button_.OnClick([]() {
             auto& app = Application::GetInstance();
             if (app.GetDeviceState() == kDeviceStateStarting) {
-                EnterWifiConfigMode();
+                // Get the current board instance and call EnterWifiConfigMode
+                auto board = static_cast<WifiBoard*>(&Board::GetInstance());
+                board->EnterWifiConfigMode();
                 return;
             }
             app.ToggleChatState();
@@ -153,9 +162,37 @@ private:
     // 物联网初始化，逐步迁移到 MCP 协议
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
-        // 初始化步进电机控制器
-        stepper_motor_ = new StepperMotorController((gpio_num_t)STEPPER_IN1_GPIO, (gpio_num_t)STEPPER_IN2_GPIO,
-                                                   (gpio_num_t)STEPPER_IN3_GPIO, (gpio_num_t)STEPPER_IN4_GPIO);
+        motor_controller_ = new MotorController(MOTOR_LF_GPIO, MOTOR_LB_GPIO, MOTOR_RF_GPIO, MOTOR_RB_GPIO);
+    }
+
+    virtual Led* GetLed() override {
+        static SingleLed led(BUILTIN_LED_GPIO);
+        return &led;
+    }
+
+    // Direct motor control methods
+    void MotorForward(int duration_ms = 500) {
+        if (motor_controller_) {
+            motor_controller_->ExecuteAction(MOTOR_FORWARD, duration_ms, 0, 1);
+        }
+    }
+
+    void MotorBackward(int duration_ms = 500) {
+        if (motor_controller_) {
+            motor_controller_->ExecuteAction(MOTOR_BACKWARD, duration_ms, 0, 1);
+        }
+    }
+
+    void MotorTurnLeft(int duration_ms = 300) {
+        if (motor_controller_) {
+            motor_controller_->ExecuteAction(MOTOR_FULL_LEFT, duration_ms, 0, 1);
+        }
+    }
+
+    void MotorTurnRight(int duration_ms = 300) {
+        if (motor_controller_) {
+            motor_controller_->ExecuteAction(MOTOR_FULL_RIGHT, duration_ms, 0, 1);
+        }
     }
 
 public:
@@ -164,17 +201,12 @@ public:
         touch_button_(TOUCH_BUTTON_GPIO),
         volume_up_button_(VOLUME_UP_BUTTON_GPIO),
         volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
+        g_motor_board = this;
         InitializeDisplayI2c();
         InitializeSsd1306Display();
         InitializeButtons();
         InitializeTools();
     }
-
-    virtual Led* GetLed() override {
-        static SingleLed led(BUILTIN_LED_GPIO);
-        return &led;
-    }
-
     virtual AudioCodec* GetAudioCodec() override {
 #ifdef AUDIO_I2S_METHOD_SIMPLEX
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
@@ -190,13 +222,75 @@ public:
         return display_;
     }
 
-    /**
-     * @brief 获取步进电机控制器
-     * @return 步进电机控制器指针
-     */
-    StepperMotorController* GetStepperMotor() {
-        return stepper_motor_;
+    // Motor control interface for different emotions and actions
+    void OnWakeUp() {
+        if (motor_controller_) {
+            motor_controller_->WakeUpAnimation();
+        }
+    }
+
+    void OnHappy() {
+        if (motor_controller_) {
+            motor_controller_->HappyAnimation();
+        }
+    }
+
+    void OnSad() {
+        if (motor_controller_) {
+            motor_controller_->SadAnimation();
+        }
+    }
+
+    void OnThinking() {
+        if (motor_controller_) {
+            motor_controller_->ThinkingAnimation();
+        }
+    }
+
+    void OnListening() {
+        if (motor_controller_) {
+            motor_controller_->ListeningAnimation();
+        }
+    }
+
+    void OnSpeaking() {
+        if (motor_controller_) {
+            motor_controller_->SpeakingAnimation();
+        }
+    }
+
+    void OnIdle() {
+        if (motor_controller_ && (esp_random() % 100) < 5) { // 5% chance for random movement
+            motor_controller_->RandomMovement();
+        }
     }
 };
+
+// Public wrapper functions for motor control
+extern "C" void HandleMotorActionForEmotion(const char* emotion) {
+    auto board = static_cast<CompactWifiBoard*>(&Board::GetInstance());
+    if (emotion) {
+        std::string emotion_str(emotion);
+        if (emotion_str == "happy" || emotion_str == "joy") {
+            board->OnHappy();
+        } else if (emotion_str == "sad" || emotion_str == "unhappy") {
+            board->OnSad();
+        } else if (emotion_str == "thinking" || emotion_str == "confused") {
+            board->OnThinking();
+        } else if (emotion_str == "listening" || emotion_str == "curious") {
+            board->OnListening();
+        } else if (emotion_str == "speaking" || emotion_str == "talking") {
+            board->OnSpeaking();
+        } else if (emotion_str == "wake" || emotion_str == "wakeup" || emotion_str == "excited") {
+            board->OnWakeUp();
+        }
+    }
+}
+
+// Global function for idle motor movements
+extern "C" void HandleMotorIdleAction(void) {
+    auto board = static_cast<CompactWifiBoard*>(&Board::GetInstance());
+    board->OnIdle();
+}
 
 DECLARE_BOARD(CompactWifiBoard);

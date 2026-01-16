@@ -1,3 +1,9 @@
+/**
+ * @file compact_wifi_board_lcd.cc
+ * @brief Bread Compact WiFi LCD板子实现文件
+ * @details 通用紧凑型WiFi LCD开发板，支持多种屏幕类型的实现
+ */
+
 #include "wifi_board.h"
 #include "codecs/no_audio_codec.h"
 #include "display/lcd_display.h"
@@ -9,6 +15,7 @@
 #include "lamp_controller.h"
 #include "led/single_led.h"
 
+
 #include <esp_log.h>
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_vendor.h>
@@ -16,12 +23,14 @@
 #include <esp_lcd_panel_ops.h>
 #include <driver/spi_common.h>
 
+// 根据配置包含不同的LCD驱动头文件
 #if defined(LCD_TYPE_ILI9341_SERIAL)
 #include "esp_lcd_ili9341.h"
 #endif
 
 #if defined(LCD_TYPE_GC9A01_SERIAL)
 #include "esp_lcd_gc9a01.h"
+/** GC9A01屏幕初始化命令序列 */
 static const gc9a01_lcd_init_cmd_t gc9107_lcd_init_cmds[] = {
     //  {cmd, { data }, data_size, delay_ms}
     {0xfe, (uint8_t[]){0x00}, 0, 0},
@@ -56,15 +65,26 @@ static const gc9a01_lcd_init_cmd_t gc9107_lcd_init_cmds[] = {
     {0xba, (uint8_t[]){0xFF, 0xFF}, 2, 0},
 };
 #endif
- 
+
+/** 日志标签 */
 #define TAG "CompactWifiBoardLCD"
 
+/**
+ * @class CompactWifiBoardLCD
+ * @brief Bread Compact WiFi LCD板子类
+ * @details 支持多种LCD屏幕的通用WiFi开发板实现
+ */
 class CompactWifiBoardLCD : public WifiBoard {
 private:
- 
+    /** 开机按键对象 */
     Button boot_button_;
+    /** LCD显示对象指针 */
     LcdDisplay* display_;
 
+    /**
+     * @brief 初始化SPI总线
+     * @details 为LCD显示屏配置SPI3主机总线
+     */
     void InitializeSpi() {
         spi_bus_config_t buscfg = {};
         buscfg.mosi_io_num = DISPLAY_MOSI_PIN;
@@ -76,6 +96,10 @@ private:
         ESP_ERROR_CHECK(spi_bus_initialize(SPI3_HOST, &buscfg, SPI_DMA_CH_AUTO));
     }
 
+    /**
+     * @brief 初始化LCD显示屏
+     * @details 根据配置的屏幕类型创建相应的LCD面板驱动
+     */
     void InitializeLcdDisplay() {
         esp_lcd_panel_io_handle_t panel_io = nullptr;
         esp_lcd_panel_handle_t panel = nullptr;
@@ -122,6 +146,10 @@ private:
                                     DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_OFFSET_X, DISPLAY_OFFSET_Y, DISPLAY_MIRROR_X, DISPLAY_MIRROR_Y, DISPLAY_SWAP_XY);
     }
 
+    /**
+     * @brief 初始化按键
+     * @details 设置开机按键的单击事件处理
+     */
     void InitializeButtons() {
         boot_button_.OnClick([this]() {
             auto& app = Application::GetInstance();
@@ -133,12 +161,19 @@ private:
         });
     }
 
-    // 物联网初始化，添加对 AI 可见设备
+    /**
+     * @brief 初始化物联网工具
+     * @details 创建灯控制器，用于MCP物联网功能测试
+     */
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
     }
 
 public:
+    /**
+     * @brief 构造函数
+     * @details 初始化Bread Compact WiFi LCD板子的所有组件
+     */
     CompactWifiBoardLCD() :
         boot_button_(BOOT_BUTTON_GPIO) {
         InitializeSpi();
@@ -151,11 +186,19 @@ public:
         
     }
 
+    /**
+     * @brief 获取LED对象
+     * @return 返回SingleLed对象指针
+     */
     virtual Led* GetLed() override {
         static SingleLed led(BUILTIN_LED_GPIO);
         return &led;
     }
 
+    /**
+     * @brief 获取音频编解码器
+     * @return 根据配置返回单工或双工音频编解码器
+     */
     virtual AudioCodec* GetAudioCodec() override {
 #ifdef AUDIO_I2S_METHOD_SIMPLEX
         static NoAudioCodecSimplex audio_codec(AUDIO_INPUT_SAMPLE_RATE, AUDIO_OUTPUT_SAMPLE_RATE,
@@ -167,10 +210,18 @@ public:
         return &audio_codec;
     }
 
+    /**
+     * @brief 获取显示对象
+     * @return 返回SpiLcdDisplay显示对象指针
+     */
     virtual Display* GetDisplay() override {
         return display_;
     }
 
+    /**
+     * @brief 获取背光控制对象
+     * @return 如果配置了背光引脚则返回PwmBacklight对象，否则返回nullptr
+     */
     virtual Backlight* GetBacklight() override {
         if (DISPLAY_BACKLIGHT_PIN != GPIO_NUM_NC) {
             static PwmBacklight backlight(DISPLAY_BACKLIGHT_PIN, DISPLAY_BACKLIGHT_OUTPUT_INVERT);

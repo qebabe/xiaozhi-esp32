@@ -1,3 +1,9 @@
+/**
+ * @file power_manager.h
+ * @brief 郑辰1.54TFT WiFi板子的电源管理系统
+ * @details 实现电池电量监测、充电状态检测、温度监控和智能省电功能
+ */
+
 #pragma once
 #include <vector>
 #include <functional>
@@ -5,33 +11,63 @@
 #include <esp_timer.h>
 #include <driver/gpio.h>
 #include <esp_adc/adc_oneshot.h>
-#include <driver/temperature_sensor.h> 
+#include <driver/temperature_sensor.h>
 #include "application.h"
 #include "zhengchen_lcd_display.h"
 
+/**
+ * @class PowerManager
+ * @brief 电源管理类
+ * @details 负责电池电量监测、充电状态检测、温度监控和省电策略管理
+ */
 class PowerManager {
 private:
-    // 定时器句柄
+    // ============ 事件回调函数 ============
+    /** 定时器句柄 */
     esp_timer_handle_t timer_handle_;
+    /** 充电状态改变回调函数 */
     std::function<void(bool)> on_charging_status_changed_;
+    /** 低电量状态改变回调函数 */
     std::function<void(bool)> on_low_battery_status_changed_;
-    std::function<void(float)> on_temperature_changed_; 
+    /** 温度改变回调函数 */
+    std::function<void(float)> on_temperature_changed_;
 
+    // ============ 硬件状态变量 ============
+    /** 充电检测引脚 */
     gpio_num_t charging_pin_ = GPIO_NUM_NC;
+    /** ADC采样值队列 */
     std::vector<uint16_t> adc_values_;
+    /** 当前电池电量百分比 (0-100) */
     uint32_t battery_level_ = 0;
+    /** 当前是否正在充电 */
     bool is_charging_ = false;
+    /** 当前是否处于低电量状态 */
     bool is_low_battery_ = false;
+    /** 当前温度值 (°C) */
     float current_temperature_ = 0.0f;
+    /** 定时器tick计数器 */
     int ticks_ = 0;
-    const int kBatteryAdcInterval = 60;
-    const int kBatteryAdcDataCount = 3;
-    const int kLowBatteryLevel = 20;
-    const int kTemperatureReadInterval = 10; // 每 10 秒读取一次温度
 
+    // ============ 配置常量 ============
+    /** 电池ADC采样间隔 (秒) */
+    const int kBatteryAdcInterval = 60;
+    /** ADC数据采样数量 */
+    const int kBatteryAdcDataCount = 3;
+    /** 低电量阈值 (%) */
+    const int kLowBatteryLevel = 20;
+    /** 温度读取间隔 (秒) */
+    const int kTemperatureReadInterval = 10;
+
+    // ============ 硬件句柄 ============
+    /** ADC单次采样单元句柄 */
     adc_oneshot_unit_handle_t adc_handle_;
+    /** 温度传感器句柄 */
     temperature_sensor_handle_t temp_sensor_ = NULL;  
 
+    /**
+     * @brief 检查电池状态
+     * @details 定期检查充电状态、读取ADC数据并计算电池电量，读取温度数据
+     */
     void CheckBatteryStatus() {
         // Get charging status
         bool new_charging_status = gpio_get_level(charging_pin_) == 1;
@@ -62,6 +98,10 @@ private:
         }
     }
 
+    /**
+     * @brief 读取电池ADC数据
+     * @details 读取ADC通道7的值，计算平均值并转换为电池电量百分比
+     */
     void ReadBatteryAdcData() {
         // 读取 ADC 值
         int adc_value;
@@ -123,6 +163,10 @@ private:
         ESP_LOGI("PowerManager", "ADC value: %d average: %ld level: %ld", adc_value, average_adc, battery_level_);
     }
 
+    /**
+     * @brief 读取温度数据
+     * @details 从ESP32内置温度传感器读取温度值，变化超过3.5°C时触发回调
+     */
     void ReadTemperature() {
         float temperature = 0.0f;
         ESP_ERROR_CHECK(temperature_sensor_get_celsius(temp_sensor_, &temperature));
@@ -138,6 +182,10 @@ private:
 
 
 public:
+    /**
+     * @brief 构造函数
+     * @param pin 充电检测引脚
+     */
     PowerManager(gpio_num_t pin) : charging_pin_(pin) {
         
         // 初始化充电引脚
@@ -187,6 +235,10 @@ public:
         ESP_LOGI("PowerManager", "Temperature sensor initialized (new driver)");
     }
 
+    /**
+     * @brief 析构函数
+     * @details 停止定时器并释放ADC和温度传感器资源
+     */
     ~PowerManager() {
         if (timer_handle_) {
             esp_timer_stop(timer_handle_);
@@ -203,6 +255,10 @@ public:
   
     }
 
+    /**
+     * @brief 获取充电状态
+     * @return true表示正在充电，false表示未充电
+     */
     bool IsCharging() {
         // 如果电量已经满了，则不再显示充电中
         if (battery_level_ == 100) {
@@ -211,27 +267,49 @@ public:
         return is_charging_;
     }
 
+    /**
+     * @brief 获取放电状态
+     * @return true表示正在放电，false表示未放电
+     */
     bool IsDischarging() {
         // 没有区分充电和放电，所以直接返回相反状态
         return !is_charging_;
     }
 
-    // 获取电池电量
+    /**
+     * @brief 获取电池电量
+     * @return 电池电量百分比 (0-100)
+     */
     uint8_t GetBatteryLevel() {
-        // 返回电池电量
         return battery_level_;
     }
 
-    float GetTemperature() const { return current_temperature_; }  // 获取当前温度
+    /**
+     * @brief 获取当前温度
+     * @return 温度值 (°C)
+     */
+    float GetTemperature() const { return current_temperature_; }
 
-    void OnTemperatureChanged(std::function<void(float)> callback) { 
-        on_temperature_changed_ = callback; 
+    /**
+     * @brief 设置温度改变回调函数
+     * @param callback 温度改变时的回调函数
+     */
+    void OnTemperatureChanged(std::function<void(float)> callback) {
+        on_temperature_changed_ = callback;
     }
 
+    /**
+     * @brief 设置低电量状态改变回调函数
+     * @param callback 低电量状态改变时的回调函数
+     */
     void OnLowBatteryStatusChanged(std::function<void(bool)> callback) {
         on_low_battery_status_changed_ = callback;
     }
 
+    /**
+     * @brief 设置充电状态改变回调函数
+     * @param callback 充电状态改变时的回调函数
+     */
     void OnChargingStatusChanged(std::function<void(bool)> callback) {
         on_charging_status_changed_ = callback;
     }

@@ -19,6 +19,13 @@
 
 #define TAG "Application"
 
+// Test comment to trigger reanalysis
+
+// Motor control functions - only available on qebabe-xiaoche board
+// These are declared as weak externs and will be resolved at link time
+extern "C" void HandleMotorActionForEmotion(const char* emotion) __attribute__((weak));
+extern "C" void (*HandleMotorIdleActionPtr)(void) __attribute__((weak));
+
 
 Application::Application() {
     event_group_ = xEventGroupCreate();
@@ -34,7 +41,7 @@ Application::Application() {
 #endif
 
     esp_timer_create_args_t clock_timer_args = {
-        .callback = [](void* arg) {
+            .callback = [](void* arg) -> void {
             Application* app = (Application*)arg;
             xEventGroupSetBits(app->event_group_, MAIN_EVENT_CLOCK_TICK);
         },
@@ -247,7 +254,11 @@ void Application::Run() {
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
-        
+
+            // Handle motor idle actions (only on boards that support it)
+            if (HandleMotorIdleActionPtr != nullptr) {
+                HandleMotorIdleActionPtr();
+            }
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
@@ -538,23 +549,23 @@ void Application::InitializeProtocol() {
                 auto text = cJSON_GetObjectItem(root, "text");
                 if (cJSON_IsString(text)) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
-                    Schedule([this, display, message = std::string(text->valuestring)]() {
-                        display->SetChatMessage("assistant", message.c_str());
-                    });
+                Schedule([display, message = std::string(text->valuestring)]() {
+                    display->SetChatMessage("assistant", message.c_str());
+                });
                 }
             }
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
                 ESP_LOGI(TAG, ">> %s", text->valuestring);
-                Schedule([this, display, message = std::string(text->valuestring)]() {
+                Schedule([display, message = std::string(text->valuestring)]() {
                     display->SetChatMessage("user", message.c_str());
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
             auto emotion = cJSON_GetObjectItem(root, "emotion");
             if (cJSON_IsString(emotion)) {
-                Schedule([this, display, emotion_str = std::string(emotion->valuestring)]() {
+                Schedule([display, emotion_str = std::string(emotion->valuestring)]() {
                     display->SetEmotion(emotion_str.c_str());
                 });
             }
@@ -643,6 +654,11 @@ void Application::Alert(const char* status, const char* message, const char* emo
     display->SetChatMessage("system", message);
     if (!sound.empty()) {
         audio_service_.PlaySound(sound);
+    }
+
+    // Handle motor actions for emotion (only on boards that support it)
+    if (emotion && strlen(emotion) > 0 && HandleMotorActionForEmotion) {
+        HandleMotorActionForEmotion(emotion);
     }
 }
 
