@@ -604,12 +604,6 @@ choice DISPLAY_STYLE
             || BOARD_TYPE_ESP_SENSAIRSHUTTLE
 endchoice
 
-config ENABLE_ANIMATED_EMOTION
-    bool "Enable Animated Emotion Display"
-    default n
-    depends on BOARD_TYPE_BREAD_COMPACT_WIFI || BOARD_TYPE_BREAD_COMPACT_ML307 || BOARD_TYPE_BREAD_COMPACT_ESP32 || BOARD_TYPE_QEBABE_XIAOCHE || BOARD_TYPE_HU_087
-    help
-        Enable animated robot eye expressions on OLED displays. When enabled, the device will show animated eyes in idle state instead of static text.
 
 choice WAKE_WORD_TYPE
     prompt "Wake Word Implementation Type"

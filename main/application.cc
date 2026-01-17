@@ -1086,18 +1086,11 @@ void Application::HandleStateChangedEvent() {
                 display->SetChatMessage("system", "");
                 display->SetEmotion("neutral");
             } else {
-                // 默认模式：根据配置显示相应内容
-#if CONFIG_ENABLE_ANIMATED_EMOTION
-                display->SetAnimatedEmotionMode(true);
-                display->SetStatus("");
-                display->SetChatMessage("system", "");
-                display->SetEmotion("neutral");
-#else
+                // 默认模式：显示静态表情
                 display->SetAnimatedEmotionMode(false);
                 display->SetStatus(Lang::Strings::STANDBY);
                 display->SetChatMessage("system", "");
                 display->SetEmotion("neutral");
-#endif
             }
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);

@@ -121,10 +121,6 @@ OledDisplay::~OledDisplay() {
         esp_lcd_panel_io_del(panel_io_);
     }
 
-    if (animated_emotion_ != nullptr) {
-        delete animated_emotion_;
-        animated_emotion_ = nullptr;
-    }
 
     lvgl_port_deinit();
 }
@@ -423,11 +419,7 @@ void OledDisplay::SetAnimatedEmotionMode(bool enable) {
             ESP_LOGI(TAG, "Resuming LVGL port after direct panel updates");
             lvgl_port_resume();
         }
-        // 禁用动画表情模式 — 清理任何现存对象
-        if (animated_emotion_ != nullptr) {
-            delete animated_emotion_;
-            animated_emotion_ = nullptr;
-        }
+        // 禁用动画表情模式 — RoboEyes对象会在其析构函数中自动清理
         if (emotion_label_ != nullptr) {
             lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
         }
@@ -436,36 +428,14 @@ void OledDisplay::SetAnimatedEmotionMode(bool enable) {
 }
 
 void OledDisplay::SetEmotionDirection(int direction) {
-    if (!animated_emotion_mode_ || animated_emotion_ == nullptr) {
-        return;
-    }
-
-    // 将整数方向转换为EyeDirection枚举
-    EyeDirection eye_direction = EyeDirection::CENTER;
-    switch (direction) {
-        case 0: eye_direction = EyeDirection::CENTER; break;
-        case 1: eye_direction = EyeDirection::UP; break;
-        case 2: eye_direction = EyeDirection::DOWN; break;
-        case 3: eye_direction = EyeDirection::LEFT; break;
-        case 4: eye_direction = EyeDirection::RIGHT; break;
-        case 5: eye_direction = EyeDirection::UP_LEFT; break;
-        case 6: eye_direction = EyeDirection::UP_RIGHT; break;
-        case 7: eye_direction = EyeDirection::DOWN_LEFT; break;
-        case 8: eye_direction = EyeDirection::DOWN_RIGHT; break;
-        default: eye_direction = EyeDirection::CENTER; break;
-    }
-
-    animated_emotion_->SetDirection(eye_direction);
+    // RoboEyes handles direction internally through idle mode and emotion changes
+    // This function is kept for API compatibility but RoboEyes manages its own eye movement
+    (void)direction; // Suppress unused parameter warning
 }
 
 void OledDisplay::UpdateAnimatedEmotion() {
-    if (!animated_emotion_mode_ || animated_emotion_ == nullptr) {
-        return;
-    }
-    // If AnimatedEmotion is timer-driven by LVGL, no manual update is needed.
-    if (!animated_emotion_->IsTimerDriven()) {
-        animated_emotion_->Update();
-    }
+    // RoboEyes handles its own animation timing internally
+    // This function is kept for API compatibility but RoboEyes manages its own updates
 }
 
 void OledDisplay::SetEmotion(const char* emotion) {
@@ -473,34 +443,9 @@ void OledDisplay::SetEmotion(const char* emotion) {
     DisplayLockGuard lock(this);
 
     if (animated_emotion_mode_) {
-        // 动画表情模式：优先使用 RoboEyes，如果没有则使用 LVGL 原生动画
+        // 动画表情模式：使用 RoboEyes 动画表情
         if (roboeyes_adapter_ != nullptr) {
-            // 使用 RoboEyes 动画表情
             roboeyes_adapter_->SetEmotion(emotion);
-        } else if (animated_emotion_ != nullptr) {
-            // 回退到 LVGL 原生动画表情
-            EmotionType emotion_type = EmotionType::NEUTRAL;
-            if (strcmp(emotion, "happy") == 0 || strcmp(emotion, "laughing") == 0) {
-                emotion_type = EmotionType::HAPPY;
-            } else if (strcmp(emotion, "sad") == 0 || strcmp(emotion, "crying") == 0) {
-                emotion_type = EmotionType::SAD;
-            } else if (strcmp(emotion, "angry") == 0) {
-                emotion_type = EmotionType::ANGRY;
-            } else if (strcmp(emotion, "surprised") == 0 || strcmp(emotion, "shocked") == 0) {
-                emotion_type = EmotionType::SURPRISED;
-            } else if (strcmp(emotion, "thinking") == 0) {
-                emotion_type = EmotionType::THINKING;
-            } else if (strcmp(emotion, "sleepy") == 0) {
-                emotion_type = EmotionType::SLEEPY;
-            } else if (strcmp(emotion, "wink") == 0 || strcmp(emotion, "winking") == 0) {
-                emotion_type = EmotionType::WINKING;
-            } else if (strcmp(emotion, "confused") == 0) {
-                emotion_type = EmotionType::CONFUSED;
-            } else if (strcmp(emotion, "neutral") == 0) {
-                emotion_type = EmotionType::NEUTRAL;
-            }
-
-            animated_emotion_->SetEmotion(emotion_type);
         }
     } else {
         // 静态表情模式：使用原来的逻辑

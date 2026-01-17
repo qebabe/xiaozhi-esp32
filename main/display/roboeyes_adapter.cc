@@ -300,10 +300,10 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
     if (strcmp(emotion, "neutral") == 0 || strcmp(emotion, "😶") == 0 ||
         strcmp(emotion, "calm") == 0 || strcmp(emotion, "normal") == 0) {
         eyes_ptr->setMood(DEFAULT);
-        eyes_ptr->setIdleMode(false);  // Disable idle for neutral
+        eyes_ptr->setIdleMode(true, 2, 4);  // Enable idle with moderate movement (every 2-6 seconds)
         eyes_ptr->setCuriosity(false); // Disable curiosity for neutral
         eyes_ptr->setSweat(false);     // Disable sweat for neutral
-        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes mood to DEFAULT (neutral)");
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes mood to DEFAULT (neutral + idle movement)");
     } else if (strcmp(emotion, "tired") == 0 || strcmp(emotion, "sleepy") == 0 ||
                strcmp(emotion, "😴") == 0 || strcmp(emotion, "exhausted") == 0) {
         eyes_ptr->setMood(TIRED);
@@ -404,12 +404,12 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to cyclops mode (single eye)");
     } else if (strcmp(emotion, "listening") == 0 || strcmp(emotion, "focused") == 0 ||
                strcmp(emotion, "attentive") == 0 || strcmp(emotion, "👂") == 0) {
-        // Special listening mode - curious + slightly happy for attentiveness
+        // Special listening mode - curious + slightly happy for attentiveness + occasional movement
         eyes_ptr->setCuriosity(true);    // Eyes get larger when looking left/right
         eyes_ptr->setMood(HAPPY);        // Happy mood to show engagement
-        eyes_ptr->setIdleMode(false);    // Disable idle to keep focus
+        eyes_ptr->setIdleMode(true, 3, 5);  // Enable idle with slower movement (every 3-8 seconds)
         eyes_ptr->setSweat(false);
-        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to listening mode (curious + happy)");
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to listening mode (curious + happy + idle movement)");
     } else {
         // Default to neutral for unknown emotions
         eyes_ptr->setMood(DEFAULT);

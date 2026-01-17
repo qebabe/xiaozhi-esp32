@@ -2,7 +2,6 @@
 #define OLED_DISPLAY_H
 
 #include "lvgl_display.h"
-#include "animated_emotion.h"
 #include "roboeyes_adapter.h"
 
 #include <memory>
@@ -27,7 +26,6 @@ private:
     lv_obj_t* chat_message_label_ = nullptr;
 
     // 动画表情相关
-    AnimatedEmotion* animated_emotion_ = nullptr;
     std::unique_ptr<RoboEyesAdapter> roboeyes_adapter_;
 
     virtual bool Lock(int timeout_ms = 0) override;
