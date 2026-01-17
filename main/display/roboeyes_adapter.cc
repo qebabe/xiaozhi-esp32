@@ -300,14 +300,23 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
     if (strcmp(emotion, "neutral") == 0 || strcmp(emotion, "😶") == 0 ||
         strcmp(emotion, "calm") == 0 || strcmp(emotion, "normal") == 0) {
         eyes_ptr->setMood(DEFAULT);
+        eyes_ptr->setIdleMode(false);  // Disable idle for neutral
+        eyes_ptr->setCuriosity(false); // Disable curiosity for neutral
+        eyes_ptr->setSweat(false);     // Disable sweat for neutral
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes mood to DEFAULT (neutral)");
     } else if (strcmp(emotion, "tired") == 0 || strcmp(emotion, "sleepy") == 0 ||
                strcmp(emotion, "😴") == 0 || strcmp(emotion, "exhausted") == 0) {
         eyes_ptr->setMood(TIRED);
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(false);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes mood to TIRED");
     } else if (strcmp(emotion, "angry") == 0 || strcmp(emotion, "😠") == 0 ||
                strcmp(emotion, "mad") == 0 || strcmp(emotion, "furious") == 0) {
         eyes_ptr->setMood(ANGRY);
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(false);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes mood to ANGRY");
     } else if (strcmp(emotion, "happy") == 0 || strcmp(emotion, "🙂") == 0 ||
                strcmp(emotion, "smile") == 0 || strcmp(emotion, "😊") == 0 ||
@@ -317,6 +326,9 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
                strcmp(emotion, "😎") == 0 || strcmp(emotion, "relaxed") == 0 ||
                strcmp(emotion, "😌") == 0) {
         eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(false);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes mood to HAPPY");
     } else if (strcmp(emotion, "thinking") == 0 || strcmp(emotion, "🤔") == 0 ||
                strcmp(emotion, "confused") == 0 || strcmp(emotion, "🙄") == 0 ||
@@ -325,6 +337,8 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
         // For thinking/confused, we can use idle mode to make eyes look around
         eyes_ptr->setIdleMode(true, 2, 2);  // More frequent idle movement
         eyes_ptr->setMood(DEFAULT);  // Keep neutral mood
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(false);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to thinking mode (idle + neutral)");
     } else if (strcmp(emotion, "surprised") == 0 || strcmp(emotion, "😲") == 0 ||
                strcmp(emotion, "shocked") == 0 || strcmp(emotion, "😱") == 0 ||
@@ -332,6 +346,9 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
         // For surprise, we can use confused animation temporarily
         eyes_ptr->anim_confused();
         eyes_ptr->setMood(DEFAULT);
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(false);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to surprised (confused animation + neutral)");
     } else if (strcmp(emotion, "laughing") == 0 || strcmp(emotion, "😆") == 0 ||
                strcmp(emotion, "funny") == 0 || strcmp(emotion, "😂") == 0 ||
@@ -340,15 +357,65 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
         // For laughing, use laugh animation
         eyes_ptr->anim_laugh();
         eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(false);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to laughing (laugh animation + happy)");
     } else if (strcmp(emotion, "sad") == 0 || strcmp(emotion, "😔") == 0 ||
                strcmp(emotion, "crying") == 0 || strcmp(emotion, "😭") == 0) {
         // For sad, we can use tired mood as a close approximation
         eyes_ptr->setMood(TIRED);
-        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes mood to TIRED (sad)");
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(true);  // Enable sweat for crying/sad
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes mood to TIRED (sad) + sweat");
+    } else if (strcmp(emotion, "curious") == 0 || strcmp(emotion, "interested") == 0 ||
+               strcmp(emotion, "👀") == 0) {
+        // Enable curiosity mode
+        eyes_ptr->setCuriosity(true);
+        eyes_ptr->setMood(DEFAULT);
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setSweat(false);
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to curious mode");
+    } else if (strcmp(emotion, "worried") == 0 || strcmp(emotion, "nervous") == 0 ||
+               strcmp(emotion, "anxious") == 0 || strcmp(emotion, "😰") == 0) {
+        // Worried: tired eyes + sweat
+        eyes_ptr->setMood(TIRED);
+        eyes_ptr->setSweat(true);
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setCuriosity(false);
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to worried (tired + sweat)");
+    } else if (strcmp(emotion, "excited") == 0 || strcmp(emotion, "exciting") == 0 ||
+               strcmp(emotion, "energetic") == 0) {
+        // Excited: happy + more active idle
+        eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setIdleMode(true, 1, 1);  // Fast idle movement
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(false);
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to excited (happy + fast idle)");
+    } else if (strcmp(emotion, "cyclops") == 0 || strcmp(emotion, "single") == 0 ||
+               strcmp(emotion, "one_eye") == 0) {
+        // Enable cyclops mode (single eye)
+        eyes_ptr->setCyclops(true);
+        eyes_ptr->setMood(DEFAULT);
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(false);
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to cyclops mode (single eye)");
+    } else if (strcmp(emotion, "listening") == 0 || strcmp(emotion, "focused") == 0 ||
+               strcmp(emotion, "attentive") == 0 || strcmp(emotion, "👂") == 0) {
+        // Special listening mode - curious + slightly happy for attentiveness
+        eyes_ptr->setCuriosity(true);    // Eyes get larger when looking left/right
+        eyes_ptr->setMood(HAPPY);        // Happy mood to show engagement
+        eyes_ptr->setIdleMode(false);    // Disable idle to keep focus
+        eyes_ptr->setSweat(false);
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to listening mode (curious + happy)");
     } else {
         // Default to neutral for unknown emotions
         eyes_ptr->setMood(DEFAULT);
+        eyes_ptr->setIdleMode(false);
+        eyes_ptr->setCuriosity(false);
+        eyes_ptr->setSweat(false);
         if (verbose_logging_) ESP_LOGI(TAG, "Unknown emotion '%s', set to DEFAULT", emotion);
     }
 }

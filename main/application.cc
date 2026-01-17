@@ -773,40 +773,37 @@ void Application::InitializeProtocol() {
                 int motor_cmd = 0;
 
                 // 支持情绪文本和 emoji 字符两种情况
-                if (emotion_str == "neutral" || emotion_str == "😶") {
+                if (emotion_str == "neutral" || emotion_str == "😶" || emotion_str == "calm") {
                     motor_cmd = 0;
-                } else if (emotion_str == "happy" || emotion_str == "🙂" || emotion_str == "smile" || emotion_str == "😊") {
+                } else if (emotion_str == "happy" || emotion_str == "🙂" || emotion_str == "smile" || emotion_str == "😊" ||
+                           emotion_str == "joy" || emotion_str == "delicious" || emotion_str == "🤤" ||
+                           emotion_str == "confident" || emotion_str == "😏" || emotion_str == "cool" ||
+                           emotion_str == "😎" || emotion_str == "relaxed" || emotion_str == "😌") {
                     motor_cmd = 1;
-                } else if (emotion_str == "laughing" || emotion_str == "😆" || emotion_str == "funny" || emotion_str == "😂") {
+                } else if (emotion_str == "laughing" || emotion_str == "😆" || emotion_str == "funny" || emotion_str == "😂" ||
+                           emotion_str == "winking" || emotion_str == "😉" || emotion_str == "silly" || emotion_str == "😜") {
                     motor_cmd = 3;
                 } else if (emotion_str == "sad" || emotion_str == "😔" || emotion_str == "crying" || emotion_str == "😭") {
                     motor_cmd = 2;
-                } else if (emotion_str == "angry" || emotion_str == "😠") {
+                } else if (emotion_str == "angry" || emotion_str == "😠" || emotion_str == "mad" || emotion_str == "furious") {
                     motor_cmd = 6;
                 } else if (emotion_str == "loving" || emotion_str == "😍" || emotion_str == "kissy" || emotion_str == "😘") {
                     motor_cmd = 4;
-                } else if (emotion_str == "embarrassed" || emotion_str == "😳") {
+                } else if (emotion_str == "embarrassed" || emotion_str == "😳" || emotion_str == "worried" ||
+                           emotion_str == "nervous" || emotion_str == "😰") {
                     motor_cmd = 5;
-                } else if (emotion_str == "surprised" || emotion_str == "😲" || emotion_str == "shocked" || emotion_str == "😱") {
+                } else if (emotion_str == "surprised" || emotion_str == "😲" || emotion_str == "shocked" ||
+                           emotion_str == "😱" || emotion_str == "amazed") {
                     motor_cmd = 6;
-                } else if (emotion_str == "thinking" || emotion_str == "🤔") {
+                } else if (emotion_str == "thinking" || emotion_str == "🤔" || emotion_str == "confused" ||
+                           emotion_str == "🙄" || emotion_str == "puzzled") {
                     motor_cmd = 5;
-                } else if (emotion_str == "winking" || emotion_str == "😉") {
-                    motor_cmd = 3;
-                } else if (emotion_str == "cool" || emotion_str == "😎") {
-                    motor_cmd = 4;
-                } else if (emotion_str == "relaxed" || emotion_str == "😌") {
-                    motor_cmd = 1;
-                } else if (emotion_str == "delicious" || emotion_str == "🤤") {
-                    motor_cmd = 1;
-                } else if (emotion_str == "confident" || emotion_str == "😏") {
-                    motor_cmd = 4;
-                } else if (emotion_str == "sleepy" || emotion_str == "😴") {
+                } else if (emotion_str == "sleepy" || emotion_str == "😴" || emotion_str == "tired" ||
+                           emotion_str == "exhausted") {
                     motor_cmd = 0;
-                } else if (emotion_str == "silly" || emotion_str == "😜") {
-                    motor_cmd = 3;
-                } else if (emotion_str == "confused" || emotion_str == "🙄") {
-                    motor_cmd = 5;
+                } else if (emotion_str == "curious" || emotion_str == "👀" || emotion_str == "excited" ||
+                           emotion_str == "listening" || emotion_str == "👂") {
+                    motor_cmd = 1;  // Listening/curious mapped to happy motor action
                 } else {
                     // 如果 emotion 字段是原生 emoji 字符（例如 "😊"）但未覆盖上面分支，可在这里做更多指定
                     motor_cmd = 0;
@@ -1118,10 +1115,10 @@ void Application::HandleStateChangedEvent() {
             break;
         case kDeviceStateListening:
             if (display_mode_ == kDisplayModeEyeOnly) {
-                // 眼睛模式：只显示动画眼睛
+                // 眼睛模式：显示专用的聆听表情
                 display->SetStatus("");
                 display->SetChatMessage("system", "");
-                display->SetEmotion("thinking");
+                display->SetEmotion("listening");
             } else {
                 // 默认模式：显示状态文字
                 display->SetStatus(Lang::Strings::LISTENING);
