@@ -125,6 +125,11 @@ void Application::Initialize() {
     // Print board name/version info
     display->SetChatMessage("system", SystemInfo::GetUserAgent().c_str());
 
+    // Default to eye-only display mode on startup (enable animated emotion)
+    display_mode_ = kDisplayModeEyeOnly;
+    SetDisplayMode(kDisplayModeEyeOnly);
+    ESP_LOGI("Application", "Animated emotion mode enabled by default (Eye Only)");
+
     // Initialize 说明（中文）：
     // 该函数负责完成设备的整体初始化：
     // 1. 初始化显示和音频服务
@@ -228,6 +233,35 @@ void Application::Initialize() {
     display->UpdateStatusBar(true);
 }
 
+// 显示模式相关方法实现
+void Application::SetDisplayMode(DisplayMode mode) {
+    if (display_mode_ != mode) {
+        display_mode_ = mode;
+        ESP_LOGI("Application", "Display mode changed to: %s",
+                 mode == kDisplayModeDefault ? "Default" : "Eye Only");
+
+        // 根据显示模式更新显示器状态
+        auto display = Board::GetInstance().GetDisplay();
+        if (mode == kDisplayModeEyeOnly) {
+            // 眼睛模式：启用动画表情，隐藏文字
+            display->SetAnimatedEmotionMode(true);
+            display->SetStatus("");  // 清空状态文字
+            display->SetChatMessage("system", "");  // 清空聊天消息
+        } else {
+            // 默认模式：根据当前状态显示相应内容
+            display->SetAnimatedEmotionMode(false);
+            // 重新设置当前状态的显示内容
+            HandleStateChangedEvent();
+        }
+    }
+}
+
+void Application::ToggleDisplayMode() {
+    DisplayMode new_mode = (display_mode_ == kDisplayModeDefault) ?
+                           kDisplayModeEyeOnly : kDisplayModeDefault;
+    SetDisplayMode(new_mode);
+}
+
 void Application::Run() {
     const EventBits_t ALL_EVENTS = 
         MAIN_EVENT_SCHEDULE |
@@ -312,6 +346,9 @@ void Application::Run() {
             clock_ticks_++;
             auto display = Board::GetInstance().GetDisplay();
             display->UpdateStatusBar();
+
+            // Update animated emotion if enabled
+            display->UpdateAnimatedEmotion();
 
             // Handle motor idle actions (only on boards that support it)
             // Use separate motor control task to avoid stability issues
@@ -677,16 +714,41 @@ void Application::InitializeProtocol() {
                 if (cJSON_IsString(text)) {
                     ESP_LOGI(TAG, "<< %s", text->valuestring);
                 Schedule([display, message = std::string(text->valuestring)]() {
-                    display->SetChatMessage("assistant", message.c_str());
+                    // 在动画表情模式下不显示聊天消息
+                    if (!display->IsAnimatedEmotionMode()) {
+                        display->SetChatMessage("assistant", message.c_str());
+                    }
                 });
                 }
             }
         } else if (strcmp(type->valuestring, "stt") == 0) {
             auto text = cJSON_GetObjectItem(root, "text");
             if (cJSON_IsString(text)) {
-                ESP_LOGI(TAG, ">> %s", text->valuestring);
-                Schedule([display, message = std::string(text->valuestring)]() {
-                    display->SetChatMessage("user", message.c_str());
+                std::string message = std::string(text->valuestring);
+                ESP_LOGI(TAG, ">> %s", message.c_str());
+
+                // 检查是否是显示模式切换命令
+                bool is_display_mode_command = false;
+                if (message.find("切换模式") != std::string::npos ||
+                    message.find("切换显示") != std::string::npos ||
+                    message.find("眼睛模式") != std::string::npos ||
+                    message.find("默认模式") != std::string::npos ||
+                    message.find("文字模式") != std::string::npos ||
+                    message.find("change mode") != std::string::npos ||
+                    message.find("eye mode") != std::string::npos ||
+                    message.find("text mode") != std::string::npos) {
+                    is_display_mode_command = true;
+                    ESP_LOGI(TAG, "Detected display mode toggle command");
+                    Schedule([this]() {
+                        ToggleDisplayMode();
+                    });
+                }
+
+                Schedule([this, display, message, is_command = is_display_mode_command]() {
+                    // 在眼睛模式或命令模式下不显示聊天消息
+                    if (display_mode_ != kDisplayModeEyeOnly && !is_command) {
+                        display->SetChatMessage("user", message.c_str());
+                    }
                 });
             }
         } else if (strcmp(type->valuestring, "llm") == 0) {
@@ -789,7 +851,10 @@ void Application::InitializeProtocol() {
             ESP_LOGI(TAG, "Received custom message: %s", cJSON_PrintUnformatted(root));
             if (cJSON_IsObject(payload)) {
                 Schedule([this, display, payload_str = std::string(cJSON_PrintUnformatted(payload))]() {
-                    display->SetChatMessage("system", payload_str.c_str());
+                    // 在动画表情模式下不显示聊天消息
+                    if (!display->IsAnimatedEmotionMode()) {
+                        display->SetChatMessage("system", payload_str.c_str());
+                    }
                 });
             } else {
                 ESP_LOGW(TAG, "Invalid custom message format: missing payload");
@@ -836,9 +901,18 @@ void Application::ShowActivationCode(const std::string& code, const std::string&
 void Application::Alert(const char* status, const char* message, const char* emotion, const std::string_view& sound) {
     ESP_LOGW(TAG, "Alert [%s] %s: %s", emotion, status, message);
     auto display = Board::GetInstance().GetDisplay();
-    display->SetStatus(status);
-    display->SetEmotion(emotion);
-    display->SetChatMessage("system", message);
+
+    // 在动画表情模式下不显示状态文字和聊天消息，只显示表情
+    if (display->IsAnimatedEmotionMode()) {
+        display->SetStatus("");
+        display->SetEmotion(emotion);
+        // 不显示聊天消息
+    } else {
+        display->SetStatus(status);
+        display->SetEmotion(emotion);
+        display->SetChatMessage("system", message);
+    }
+
     if (!sound.empty()) {
         audio_service_.PlaySound(sound);
     }
@@ -1008,19 +1082,52 @@ void Application::HandleStateChangedEvent() {
     switch (new_state) {
         case kDeviceStateUnknown:
         case kDeviceStateIdle:
-            display->SetStatus(Lang::Strings::STANDBY);
-            display->SetEmotion("neutral");
+            if (display_mode_ == kDisplayModeEyeOnly) {
+                // 眼睛模式：只显示动画眼睛，不显示任何文字
+                display->SetAnimatedEmotionMode(true);
+                display->SetStatus("");
+                display->SetChatMessage("system", "");
+                display->SetEmotion("neutral");
+            } else {
+                // 默认模式：根据配置显示相应内容
+#if CONFIG_ENABLE_ANIMATED_EMOTION
+                display->SetAnimatedEmotionMode(true);
+                display->SetStatus("");
+                display->SetChatMessage("system", "");
+                display->SetEmotion("neutral");
+#else
+                display->SetAnimatedEmotionMode(false);
+                display->SetStatus(Lang::Strings::STANDBY);
+                display->SetChatMessage("system", "");
+                display->SetEmotion("neutral");
+#endif
+            }
             audio_service_.EnableVoiceProcessing(false);
             audio_service_.EnableWakeWordDetection(true);
             break;
         case kDeviceStateConnecting:
-            display->SetStatus(Lang::Strings::CONNECTING);
-            display->SetEmotion("neutral");
-            display->SetChatMessage("system", "");
+            if (display_mode_ == kDisplayModeEyeOnly) {
+                display->SetStatus("");
+                display->SetChatMessage("system", "");
+                display->SetEmotion("neutral");
+            } else {
+                display->SetStatus(Lang::Strings::CONNECTING);
+                display->SetEmotion("neutral");
+                display->SetChatMessage("system", "");
+            }
             break;
         case kDeviceStateListening:
-            display->SetStatus(Lang::Strings::LISTENING);
-            display->SetEmotion("neutral");
+            if (display_mode_ == kDisplayModeEyeOnly) {
+                // 眼睛模式：只显示动画眼睛
+                display->SetStatus("");
+                display->SetChatMessage("system", "");
+                display->SetEmotion("thinking");
+            } else {
+                // 默认模式：显示状态文字
+                display->SetStatus(Lang::Strings::LISTENING);
+                display->SetChatMessage("system", "");
+                display->SetEmotion("neutral");
+            }
 
             // Make sure the audio processor is running
             if (!audio_service_.IsAudioProcessorRunning()) {
@@ -1037,7 +1144,19 @@ void Application::HandleStateChangedEvent() {
             }
             break;
         case kDeviceStateSpeaking:
-            display->SetStatus(Lang::Strings::SPEAKING);
+            if (display_mode_ == kDisplayModeEyeOnly) {
+                // 眼睛模式：只显示动画眼睛
+                display->SetStatus("");
+                display->SetChatMessage("system", "");
+                display->SetEmotion("happy");
+            } else {
+                // 默认模式：显示状态文字
+                display->SetStatus(Lang::Strings::SPEAKING);
+                display->SetChatMessage("system", "");
+                display->SetEmotion("neutral");
+            }
+            // 清空聊天消息，在对话过程中不显示文字
+            display->SetChatMessage("system", "");
 
             if (listening_mode_ != kListeningModeRealtime) {
                 audio_service_.EnableVoiceProcessing(false);
@@ -1110,7 +1229,10 @@ bool Application::UpgradeFirmware(const std::string& url, const std::string& ver
     SetDeviceState(kDeviceStateUpgrading);
 
     std::string message = std::string(Lang::Strings::NEW_VERSION) + version_info;
-    display->SetChatMessage("system", message.c_str());
+    // 在动画表情模式下不显示聊天消息
+    if (!display->IsAnimatedEmotionMode()) {
+        display->SetChatMessage("system", message.c_str());
+    }
 
     board.SetPowerSaveLevel(PowerSaveLevel::PERFORMANCE);
     audio_service_.Stop();

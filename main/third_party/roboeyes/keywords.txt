@@ -1,0 +1,55 @@
+#######################################
+# Syntax Coloring Map For RoboEyes
+#######################################
+
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+RoboEyes	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+begin	KEYWORD2
+update	KEYWORD2
+setFramerate	KEYWORD2
+setDisplayColors	KEYWORD2
+setWidth	KEYWORD2
+setHeight	KEYWORD2
+setBorderradius	KEYWORD2
+setSpacebetween	KEYWORD2
+setMood	KEYWORD2
+setPosition	KEYWORD2
+setAutoblinker	KEYWORD2
+setIdleMode	KEYWORD2
+setCuriosity	KEYWORD2
+setCyclops	KEYWORD2
+setHFlicker	KEYWORD2
+setVFlicker	KEYWORD2
+setSweat	KEYWORD2
+getScreenConstraint_X	KEYWORD2
+getScreenConstraint_Y	KEYWORD2
+close	KEYWORD2
+open	KEYWORD2
+blink	KEYWORD2
+anim_confused	KEYWORD2
+anim_laugh	KEYWORD2
+drawEyes	KEYWORD2
+
+#######################################
+# Constants and Literals (LITERAL1)
+#######################################
+DEFAULT	LITERAL1
+TIRED	LITERAL1
+ANGRY	LITERAL1
+HAPPY	LITERAL1
+ON	LITERAL1
+OFF	LITERAL1
+N	LITERAL1
+NE	LITERAL1
+E	LITERAL1
+SE	LITERAL1
+S	LITERAL1
+SW	LITERAL1
+W	LITERAL1
+NW	LITERAL1

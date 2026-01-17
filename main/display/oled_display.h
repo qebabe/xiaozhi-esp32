@@ -2,6 +2,10 @@
 #define OLED_DISPLAY_H
 
 #include "lvgl_display.h"
+#include "animated_emotion.h"
+#include "roboeyes_adapter.h"
+
+#include <memory>
 
 #include <esp_lcd_panel_io.h>
 #include <esp_lcd_panel_ops.h>
@@ -22,6 +26,10 @@ private:
     lv_obj_t *emotion_label_ = nullptr;
     lv_obj_t* chat_message_label_ = nullptr;
 
+    // 动画表情相关
+    AnimatedEmotion* animated_emotion_ = nullptr;
+    std::unique_ptr<RoboEyesAdapter> roboeyes_adapter_;
+
     virtual bool Lock(int timeout_ms = 0) override;
     virtual void Unlock() override;
 
@@ -35,6 +43,11 @@ public:
     virtual void SetChatMessage(const char* role, const char* content) override;
     virtual void SetEmotion(const char* emotion) override;
     virtual void SetTheme(Theme* theme) override;
+
+    // 动画表情相关方法
+    virtual void SetAnimatedEmotionMode(bool enable) override;
+    virtual void SetEmotionDirection(int direction) override;
+    virtual void UpdateAnimatedEmotion() override;
 };
 
 #endif // OLED_DISPLAY_H

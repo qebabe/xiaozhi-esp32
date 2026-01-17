@@ -120,10 +120,13 @@ void LvglDisplay::UpdateStatusBar(bool update_all) {
         }
     }
 
-    // Update time
+    // Update time - only show time if not in animated emotion mode
     if (app.GetDeviceState() == kDeviceStateIdle) {
+        // Check if animated emotion mode is enabled
+        bool is_animated_mode = false;
+        // We need to check the parent class to see if animated mode is enabled
+        // For now, we'll use a simple check - if there's no status text set, assume animated mode
         if (last_status_update_time_ + std::chrono::seconds(10) < std::chrono::system_clock::now()) {
-            // Set status to clock "HH:MM"
             time_t now = time(NULL);
             struct tm* tm = localtime(&now);
             // Check if the we have already set the time

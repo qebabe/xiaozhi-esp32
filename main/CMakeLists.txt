@@ -15,6 +15,7 @@ set(SOURCES "audio/audio_codec.cc"
             "display/display.cc"
             "display/lcd_display.cc"
             "display/oled_display.cc"
+            "display/animated_emotion.cc"
             "display/lvgl_display/lvgl_display.cc"
             "display/emote_display.cc"
             "display/lvgl_display/emoji_collection.cc"
@@ -25,6 +26,7 @@ set(SOURCES "audio/audio_codec.cc"
             "display/lvgl_display/gif/gifdec.c"
             "display/lvgl_display/jpg/image_to_jpeg.cpp"
             "display/lvgl_display/jpg/jpeg_to_image.c"
+            "display/roboeyes_adapter.cc"
             "protocols/protocol.cc"
             "protocols/mqtt_protocol.cc"
             "protocols/websocket_protocol.cc"
@@ -39,6 +41,7 @@ set(SOURCES "audio/audio_codec.cc"
             )
 
 set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "protocols")
+list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/roboeyes/src")
 
 # Add board common files
 file(GLOB BOARD_COMMON_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/boards/common/*.cc)
@@ -747,6 +750,11 @@ idf_component_register(SRCS ${SOURCES}
                     INCLUDE_DIRS ${INCLUDE_DIRS}
                     WHOLE_ARCHIVE
                     )
+
+# Disable warnings for vendored RoboEyes library
+set_source_files_properties("display/roboeyes_adapter.cc" PROPERTIES
+    COMPILE_FLAGS "-Wno-maybe-uninitialized -Wno-reorder"
+)
 
 # Use target_compile_definitions to define BOARD_TYPE, BOARD_NAME
 # If BOARD_NAME is empty, use BOARD_TYPE

@@ -39,6 +39,11 @@ enum AecMode {
     kAecOnServerSide,
 };
 
+enum DisplayMode {
+    kDisplayModeDefault,    // 默认模式：显示文字和表情
+    kDisplayModeEyeOnly,    // 眼睛模式：只显示动画眼睛
+};
+
 class Application {
 public:
     static Application& GetInstance() {
@@ -65,6 +70,11 @@ public:
 
     DeviceState GetDeviceState() const { return state_machine_.GetState(); }
     bool IsVoiceDetected() const { return audio_service_.IsVoiceDetected(); }
+
+    // 显示模式相关方法
+    DisplayMode GetDisplayMode() const { return display_mode_; }
+    void SetDisplayMode(DisplayMode mode);
+    void ToggleDisplayMode();
     
     /**
      * Request state transition
@@ -137,6 +147,7 @@ private:
     DeviceStateMachine state_machine_;
     ListeningMode listening_mode_ = kListeningModeAutoStop;
     AecMode aec_mode_ = kAecOff;
+    DisplayMode display_mode_ = kDisplayModeDefault;
     std::string last_error_message_;
     AudioService audio_service_;
     std::unique_ptr<Ota> ota_;

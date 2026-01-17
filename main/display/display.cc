@@ -54,3 +54,17 @@ void Display::SetTheme(Theme* theme) {
 void Display::SetPowerSaveMode(bool on) {
     ESP_LOGW(TAG, "SetPowerSaveMode: %d", on);
 }
+
+void Display::SetAnimatedEmotionMode(bool enable) {
+    animated_emotion_mode_ = enable;
+    ESP_LOGI(TAG, "Animated emotion mode: %s", enable ? "enabled" : "disabled");
+}
+
+void Display::SetEmotionDirection(int direction) {
+    // 默认实现不做任何事情，由子类实现
+    ESP_LOGD(TAG, "SetEmotionDirection: %d", direction);
+}
+
+void Display::UpdateAnimatedEmotion() {
+    // 默认实现不做任何事情，由子类实现
+}

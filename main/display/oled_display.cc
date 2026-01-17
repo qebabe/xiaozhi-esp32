@@ -120,6 +120,12 @@ OledDisplay::~OledDisplay() {
     if (panel_io_ != nullptr) {
         esp_lcd_panel_io_del(panel_io_);
     }
+
+    if (animated_emotion_ != nullptr) {
+        delete animated_emotion_;
+        animated_emotion_ = nullptr;
+    }
+
     lvgl_port_deinit();
 }
 
@@ -372,18 +378,6 @@ void OledDisplay::SetupUI_128x32() {
     lv_obj_set_style_anim_duration(chat_message_label_, lv_anim_speed_clamped(60, 300, 60000), LV_PART_MAIN);
 }
 
-void OledDisplay::SetEmotion(const char* emotion) {
-    const char* utf8 = font_awesome_get_utf8(emotion);
-    DisplayLockGuard lock(this);
-    if (emotion_label_ == nullptr) {
-        return;
-    }
-    if (utf8 != nullptr) {
-        lv_label_set_text(emotion_label_, utf8);
-    } else {
-        lv_label_set_text(emotion_label_, FONT_AWESOME_NEUTRAL);
-    }
-}
 
 void OledDisplay::SetTheme(Theme* theme) {
     DisplayLockGuard lock(this);
@@ -393,4 +387,131 @@ void OledDisplay::SetTheme(Theme* theme) {
 
     auto screen = lv_screen_active();
     lv_obj_set_style_text_font(screen, text_font, 0);
+}
+
+void OledDisplay::SetAnimatedEmotionMode(bool enable) {
+    Display::SetAnimatedEmotionMode(enable);
+
+    DisplayLockGuard lock(this);
+
+    if (enable) {
+        ESP_LOGI(TAG, "Enabling animated emotion mode");
+        // When using direct panel flush, stop LVGL's display task to avoid redraw conflicts.
+        if (panel_ != nullptr) {
+            ESP_LOGI(TAG, "Stopping LVGL port to allow direct panel updates");
+            lvgl_port_stop();
+        }
+        // Initialize RoboEyesAdapter if not already done
+        if (roboeyes_adapter_ == nullptr) {
+            roboeyes_adapter_ = std::make_unique<RoboEyesAdapter>();
+            if (!roboeyes_adapter_->Begin(content_left_, width(), height(), 30, panel_io_, panel_)) {
+                ESP_LOGE(TAG, "Failed to initialize RoboEyesAdapter");
+                roboeyes_adapter_.reset();
+                animated_emotion_mode_ = false;
+                if (panel_ != nullptr) lvgl_port_resume();
+                return;
+            }
+        }
+        // Hide emotion label when in animated mode
+        if (emotion_label_ != nullptr) {
+            lv_obj_add_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+    } else {
+        ESP_LOGI(TAG, "Disabling animated emotion mode");
+        // Resume LVGL if we previously stopped it for direct panel updates
+        if (panel_ != nullptr) {
+            ESP_LOGI(TAG, "Resuming LVGL port after direct panel updates");
+            lvgl_port_resume();
+        }
+        // 禁用动画表情模式 — 清理任何现存对象
+        if (animated_emotion_ != nullptr) {
+            delete animated_emotion_;
+            animated_emotion_ = nullptr;
+        }
+        if (emotion_label_ != nullptr) {
+            lv_obj_remove_flag(emotion_label_, LV_OBJ_FLAG_HIDDEN);
+        }
+        ESP_LOGI(TAG, "Animated emotion mode disabled");
+    }
+}
+
+void OledDisplay::SetEmotionDirection(int direction) {
+    if (!animated_emotion_mode_ || animated_emotion_ == nullptr) {
+        return;
+    }
+
+    // 将整数方向转换为EyeDirection枚举
+    EyeDirection eye_direction = EyeDirection::CENTER;
+    switch (direction) {
+        case 0: eye_direction = EyeDirection::CENTER; break;
+        case 1: eye_direction = EyeDirection::UP; break;
+        case 2: eye_direction = EyeDirection::DOWN; break;
+        case 3: eye_direction = EyeDirection::LEFT; break;
+        case 4: eye_direction = EyeDirection::RIGHT; break;
+        case 5: eye_direction = EyeDirection::UP_LEFT; break;
+        case 6: eye_direction = EyeDirection::UP_RIGHT; break;
+        case 7: eye_direction = EyeDirection::DOWN_LEFT; break;
+        case 8: eye_direction = EyeDirection::DOWN_RIGHT; break;
+        default: eye_direction = EyeDirection::CENTER; break;
+    }
+
+    animated_emotion_->SetDirection(eye_direction);
+}
+
+void OledDisplay::UpdateAnimatedEmotion() {
+    if (!animated_emotion_mode_ || animated_emotion_ == nullptr) {
+        return;
+    }
+    // If AnimatedEmotion is timer-driven by LVGL, no manual update is needed.
+    if (!animated_emotion_->IsTimerDriven()) {
+        animated_emotion_->Update();
+    }
+}
+
+void OledDisplay::SetEmotion(const char* emotion) {
+    // 先调用父类的SetEmotion来处理静态表情
+    DisplayLockGuard lock(this);
+
+    if (animated_emotion_mode_) {
+        // 动画表情模式：优先使用 RoboEyes，如果没有则使用 LVGL 原生动画
+        if (roboeyes_adapter_ != nullptr) {
+            // 使用 RoboEyes 动画表情
+            roboeyes_adapter_->SetEmotion(emotion);
+        } else if (animated_emotion_ != nullptr) {
+            // 回退到 LVGL 原生动画表情
+            EmotionType emotion_type = EmotionType::NEUTRAL;
+            if (strcmp(emotion, "happy") == 0 || strcmp(emotion, "laughing") == 0) {
+                emotion_type = EmotionType::HAPPY;
+            } else if (strcmp(emotion, "sad") == 0 || strcmp(emotion, "crying") == 0) {
+                emotion_type = EmotionType::SAD;
+            } else if (strcmp(emotion, "angry") == 0) {
+                emotion_type = EmotionType::ANGRY;
+            } else if (strcmp(emotion, "surprised") == 0 || strcmp(emotion, "shocked") == 0) {
+                emotion_type = EmotionType::SURPRISED;
+            } else if (strcmp(emotion, "thinking") == 0) {
+                emotion_type = EmotionType::THINKING;
+            } else if (strcmp(emotion, "sleepy") == 0) {
+                emotion_type = EmotionType::SLEEPY;
+            } else if (strcmp(emotion, "wink") == 0 || strcmp(emotion, "winking") == 0) {
+                emotion_type = EmotionType::WINKING;
+            } else if (strcmp(emotion, "confused") == 0) {
+                emotion_type = EmotionType::CONFUSED;
+            } else if (strcmp(emotion, "neutral") == 0) {
+                emotion_type = EmotionType::NEUTRAL;
+            }
+
+            animated_emotion_->SetEmotion(emotion_type);
+        }
+    } else {
+        // 静态表情模式：使用原来的逻辑
+        const char* utf8 = font_awesome_get_utf8(emotion);
+        if (emotion_label_ == nullptr) {
+            return;
+        }
+        if (utf8 != nullptr) {
+            lv_label_set_text(emotion_label_, utf8);
+        } else {
+            lv_label_set_text(emotion_label_, FONT_AWESOME_NEUTRAL);
+        }
+    }
 }

@@ -40,10 +40,17 @@ public:
     virtual void UpdateStatusBar(bool update_all = false);
     virtual void SetPowerSaveMode(bool on);
 
+    // 动画表情相关方法
+    virtual void SetAnimatedEmotionMode(bool enable);
+    virtual bool IsAnimatedEmotionMode() const { return animated_emotion_mode_; }
+    virtual void SetEmotionDirection(int direction); // 0-8: center, up, down, left, right, diagonals
+    virtual void UpdateAnimatedEmotion();
+
     inline int width() const { return width_; }
     inline int height() const { return height_; }
 
 protected:
+    bool animated_emotion_mode_ = false;
     int width_ = 0;
     int height_ = 0;
 
