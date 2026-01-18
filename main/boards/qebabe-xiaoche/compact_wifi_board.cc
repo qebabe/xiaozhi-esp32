@@ -17,6 +17,8 @@
 #include <driver/i2c_master.h>
 #include <esp_lcd_panel_ops.h>
 #include <esp_lcd_panel_vendor.h>
+#include <utility>
+#include <string>
 
 #ifdef SH1106
 #include <esp_lcd_panel_sh1106.h>
@@ -163,6 +165,103 @@ private:
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
         motor_controller_ = new MotorController(MOTOR_LF_GPIO, MOTOR_LB_GPIO, MOTOR_RF_GPIO, MOTOR_RB_GPIO);
+
+        // Add motor control tools to MCP server
+        auto& mcp_server = McpServer::GetInstance();
+
+        mcp_server.AddTool("self.motor.move_forward",
+            "Move the robot forward. If no duration is specified, moves for 5 seconds. You can specify a custom duration in milliseconds.",
+            PropertyList({
+                Property("duration_ms", kPropertyTypeInteger, 5000, 100, 10000)  // Default 5000ms, range 100ms to 10s
+            }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                int duration = properties["duration_ms"].value<int>();
+                MotorMoveForward(duration);
+                return std::string("Moved forward for ") + std::to_string(duration) + "ms";
+            });
+
+        mcp_server.AddTool("self.motor.move_backward",
+            "Move the robot backward. If no duration is specified, moves for 5 seconds. You can specify a custom duration in milliseconds.",
+            PropertyList({
+                Property("duration_ms", kPropertyTypeInteger, 5000, 100, 10000)  // Default 5000ms, range 100ms to 10s
+            }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                int duration = properties["duration_ms"].value<int>();
+                MotorMoveBackward(duration);
+                return std::string("Moved backward for ") + std::to_string(duration) + "ms";
+            });
+
+        mcp_server.AddTool("self.motor.spin_around",
+            "Spin the robot around in a full circle",
+            PropertyList(),
+            [this](const PropertyList& properties) -> ReturnValue {
+                MotorSpinAround();
+                return std::string("Spin around completed");
+            });
+
+        mcp_server.AddTool("self.motor.turn_left",
+            "Turn the robot left. If no duration is specified, turns for 0.6 seconds (approximately 90 degrees). You can specify a custom duration in milliseconds.",
+            PropertyList({
+                Property("duration_ms", kPropertyTypeInteger, 600, 100, 5000)  // Default 600ms, range 100ms to 5s
+            }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                int duration = properties["duration_ms"].value<int>();
+                MotorTurnLeftDuration(duration);
+                return std::string("Turned left for ") + std::to_string(duration) + "ms";
+            });
+
+        mcp_server.AddTool("self.motor.turn_right",
+            "Turn the robot right. If no duration is specified, turns for 0.6 seconds (approximately 90 degrees). You can specify a custom duration in milliseconds.",
+            PropertyList({
+                Property("duration_ms", kPropertyTypeInteger, 600, 100, 5000)  // Default 600ms, range 100ms to 5s
+            }),
+            [this](const PropertyList& properties) -> ReturnValue {
+                int duration = properties["duration_ms"].value<int>();
+                MotorTurnRightDuration(duration);
+                return std::string("Turned right for ") + std::to_string(duration) + "ms";
+            });
+
+        mcp_server.AddTool("self.motor.quick_forward",
+            "Quick forward movement for 5 seconds",
+            PropertyList(),
+            [this](const PropertyList& properties) -> ReturnValue {
+                MotorQuickForward();
+                return std::string("Quick forward movement completed");
+            });
+
+        mcp_server.AddTool("self.motor.quick_backward",
+            "Quick backward movement for 5 seconds",
+            PropertyList(),
+            [this](const PropertyList& properties) -> ReturnValue {
+                MotorQuickBackward();
+                return std::string("Quick backward movement completed");
+            });
+
+        mcp_server.AddTool("self.motor.wiggle",
+            "Make the robot wiggle left and right",
+            PropertyList(),
+            [this](const PropertyList& properties) -> ReturnValue {
+                MotorWiggle();
+                return std::string("Wiggle completed");
+            });
+
+        mcp_server.AddTool("self.motor.dance",
+            "Make the robot perform a dance routine",
+            PropertyList(),
+            [this](const PropertyList& properties) -> ReturnValue {
+                MotorDance();
+                return std::string("Dance completed");
+            });
+
+        mcp_server.AddTool("self.motor.stop",
+            "Stop all motor movement immediately",
+            PropertyList(),
+            [this](const PropertyList& properties) -> ReturnValue {
+                if (motor_controller_) {
+                    motor_controller_->Stop();
+                }
+                return std::string("Motor stopped");
+            });
     }
 
     virtual Led* GetLed() override {
@@ -192,6 +291,62 @@ private:
     void MotorTurnRight(int duration_ms = 300) {
         if (motor_controller_) {
             motor_controller_->ExecuteAction(MOTOR_FULL_RIGHT, duration_ms, 0, 1);
+        }
+    }
+
+    // Specific movement actions as requested
+    void MotorMoveForward(int duration_ms = 5000) {
+        if (motor_controller_) {
+            motor_controller_->MoveForward(duration_ms);
+        }
+    }
+
+    void MotorMoveBackward(int duration_ms = 5000) {
+        if (motor_controller_) {
+            motor_controller_->MoveBackward(duration_ms);
+        }
+    }
+
+    void MotorSpinAround() {
+        if (motor_controller_) {
+            motor_controller_->SpinAround();
+        }
+    }
+
+    void MotorTurnLeftDuration(int duration_ms = 600) {
+        if (motor_controller_) {
+            motor_controller_->TurnLeftDuration(duration_ms);
+        }
+    }
+
+    void MotorTurnRightDuration(int duration_ms = 600) {
+        if (motor_controller_) {
+            motor_controller_->TurnRightDuration(duration_ms);
+        }
+    }
+
+    // Additional useful movements
+    void MotorQuickForward() {
+        if (motor_controller_) {
+            motor_controller_->QuickForward();
+        }
+    }
+
+    void MotorQuickBackward() {
+        if (motor_controller_) {
+            motor_controller_->QuickBackward();
+        }
+    }
+
+    void MotorWiggle() {
+        if (motor_controller_) {
+            motor_controller_->Wiggle();
+        }
+    }
+
+    void MotorDance() {
+        if (motor_controller_) {
+            motor_controller_->Dance();
         }
     }
 
@@ -268,7 +423,7 @@ public:
             gpio_config_t io_conf = {};
             io_conf.intr_type = GPIO_INTR_DISABLE;
             io_conf.mode = GPIO_MODE_OUTPUT;
-            io_conf.pin_bit_mask = (1ULL << 8) | (1ULL << 19) | (1ULL << 20) | (1ULL << 3);
+            io_conf.pin_bit_mask = (1ULL << MOTOR_LF_GPIO) | (1ULL << MOTOR_LB_GPIO) | (1ULL << MOTOR_RF_GPIO) | (1ULL << MOTOR_RB_GPIO);
             io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
             io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
 
@@ -279,57 +434,57 @@ public:
 
         if (!gpio_initialized) return;
 
-        // 执行电机动作 (LF=8, LB=19, RF=20, RB=3)
+        // 执行电机动作，使用config.h中定义的宏
         switch (action) {
             case 1: // FORWARD
-                gpio_set_level(GPIO_NUM_8, 1);  // LF
-                gpio_set_level(GPIO_NUM_19, 0); // LB
-                gpio_set_level(GPIO_NUM_20, 1); // RF
-                gpio_set_level(GPIO_NUM_3, 0);  // RB
+                gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
+                gpio_set_level(MOTOR_LB_GPIO, 0); // LB
+                gpio_set_level(MOTOR_RF_GPIO, 1); // RF
+                gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
                 vTaskDelay(pdMS_TO_TICKS(duration_ms));
-                gpio_set_level(GPIO_NUM_8, 0);
-                gpio_set_level(GPIO_NUM_19, 0);
-                gpio_set_level(GPIO_NUM_20, 0);
-                gpio_set_level(GPIO_NUM_3, 0);
+                gpio_set_level(MOTOR_LF_GPIO, 0);
+                gpio_set_level(MOTOR_LB_GPIO, 0);
+                gpio_set_level(MOTOR_RF_GPIO, 0);
+                gpio_set_level(MOTOR_RB_GPIO, 0);
                 break;
             case 2: // BACKWARD
-                gpio_set_level(GPIO_NUM_8, 0);  // LF
-                gpio_set_level(GPIO_NUM_19, 1); // LB
-                gpio_set_level(GPIO_NUM_20, 0); // RF
-                gpio_set_level(GPIO_NUM_3, 1);  // RB
+                gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
+                gpio_set_level(MOTOR_LB_GPIO, 1); // LB
+                gpio_set_level(MOTOR_RF_GPIO, 0); // RF
+                gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
                 vTaskDelay(pdMS_TO_TICKS(duration_ms));
-                gpio_set_level(GPIO_NUM_8, 0);
-                gpio_set_level(GPIO_NUM_19, 0);
-                gpio_set_level(GPIO_NUM_20, 0);
-                gpio_set_level(GPIO_NUM_3, 0);
+                gpio_set_level(MOTOR_LF_GPIO, 0);
+                gpio_set_level(MOTOR_LB_GPIO, 0);
+                gpio_set_level(MOTOR_RF_GPIO, 0);
+                gpio_set_level(MOTOR_RB_GPIO, 0);
                 break;
             case 3: // LEFT
-                gpio_set_level(GPIO_NUM_8, 0);  // LF
-                gpio_set_level(GPIO_NUM_19, 1); // LB
-                gpio_set_level(GPIO_NUM_20, 1); // RF
-                gpio_set_level(GPIO_NUM_3, 0);  // RB
+                gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
+                gpio_set_level(MOTOR_LB_GPIO, 1); // LB
+                gpio_set_level(MOTOR_RF_GPIO, 1); // RF
+                gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
                 vTaskDelay(pdMS_TO_TICKS(duration_ms));
-                gpio_set_level(GPIO_NUM_8, 0);
-                gpio_set_level(GPIO_NUM_19, 0);
-                gpio_set_level(GPIO_NUM_20, 0);
-                gpio_set_level(GPIO_NUM_3, 0);
+                gpio_set_level(MOTOR_LF_GPIO, 0);
+                gpio_set_level(MOTOR_LB_GPIO, 0);
+                gpio_set_level(MOTOR_RF_GPIO, 0);
+                gpio_set_level(MOTOR_RB_GPIO, 0);
                 break;
             case 4: // RIGHT
-                gpio_set_level(GPIO_NUM_8, 1);  // LF
-                gpio_set_level(GPIO_NUM_19, 0); // LB
-                gpio_set_level(GPIO_NUM_20, 0); // RF
-                gpio_set_level(GPIO_NUM_3, 1);  // RB
+                gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
+                gpio_set_level(MOTOR_LB_GPIO, 0); // LB
+                gpio_set_level(MOTOR_RF_GPIO, 0); // RF
+                gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
                 vTaskDelay(pdMS_TO_TICKS(duration_ms));
-                gpio_set_level(GPIO_NUM_8, 0);
-                gpio_set_level(GPIO_NUM_19, 0);
-                gpio_set_level(GPIO_NUM_20, 0);
-                gpio_set_level(GPIO_NUM_3, 0);
+                gpio_set_level(MOTOR_LF_GPIO, 0);
+                gpio_set_level(MOTOR_LB_GPIO, 0);
+                gpio_set_level(MOTOR_RF_GPIO, 0);
+                gpio_set_level(MOTOR_RB_GPIO, 0);
                 break;
         }
     }
 
     void OnIdle() {
-        if (motor_controller_ && (esp_random() % 100) < 5) { // 5% chance for random movement
+        if (motor_controller_ && (esp_random() % 100) < 50) { // 5% chance for random movement
             ESP_LOGI(TAG, "电机空闲: 随机动作被触发 (5%概率)");
             motor_controller_->RandomMovement();
         }

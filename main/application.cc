@@ -33,7 +33,7 @@
 #define MOTOR_LF_GPIO GPIO_NUM_8
 #define MOTOR_LB_GPIO GPIO_NUM_19
 #define MOTOR_RF_GPIO GPIO_NUM_20
-#define MOTOR_RB_GPIO GPIO_NUM_3
+#define MOTOR_RB_GPIO GPIO_NUM_21
 #endif
 
 // Test comment to trigger reanalysis
@@ -772,38 +772,82 @@ void Application::InitializeProtocol() {
                 // 6: 突然/强烈动作（惊讶 / 震惊 / 生气）
                 int motor_cmd = 0;
 
-                // 支持情绪文本和 emoji 字符两种情况
-                if (emotion_str == "neutral" || emotion_str == "😶" || emotion_str == "calm") {
-                    motor_cmd = 0;
-                } else if (emotion_str == "happy" || emotion_str == "🙂" || emotion_str == "smile" || emotion_str == "😊" ||
-                           emotion_str == "joy" || emotion_str == "delicious" || emotion_str == "🤤" ||
-                           emotion_str == "confident" || emotion_str == "😏" || emotion_str == "cool" ||
-                           emotion_str == "😎" || emotion_str == "relaxed" || emotion_str == "😌") {
+                // 支持情绪文本和 emoji 字符两种情况 - 与眼睛表情完全对应
+                if (emotion_str == "smile") {
+                    // smile -> happy
                     motor_cmd = 1;
-                } else if (emotion_str == "laughing" || emotion_str == "😆" || emotion_str == "funny" || emotion_str == "😂" ||
-                           emotion_str == "winking" || emotion_str == "😉" || emotion_str == "silly" || emotion_str == "😜") {
+                } else if (emotion_str == "laugh") {
+                    // laugh -> laughing
                     motor_cmd = 3;
-                } else if (emotion_str == "sad" || emotion_str == "😔" || emotion_str == "crying" || emotion_str == "😭") {
+                } else if (emotion_str == "cry") {
+                    // cry -> crying
                     motor_cmd = 2;
-                } else if (emotion_str == "angry" || emotion_str == "😠" || emotion_str == "mad" || emotion_str == "furious") {
-                    motor_cmd = 6;
-                } else if (emotion_str == "loving" || emotion_str == "😍" || emotion_str == "kissy" || emotion_str == "😘") {
-                    motor_cmd = 4;
-                } else if (emotion_str == "embarrassed" || emotion_str == "😳" || emotion_str == "worried" ||
-                           emotion_str == "nervous" || emotion_str == "😰") {
-                    motor_cmd = 5;
-                } else if (emotion_str == "surprised" || emotion_str == "😲" || emotion_str == "shocked" ||
-                           emotion_str == "😱" || emotion_str == "amazed") {
-                    motor_cmd = 6;
-                } else if (emotion_str == "thinking" || emotion_str == "🤔" || emotion_str == "confused" ||
-                           emotion_str == "🙄" || emotion_str == "puzzled") {
-                    motor_cmd = 5;
-                } else if (emotion_str == "sleepy" || emotion_str == "😴" || emotion_str == "tired" ||
-                           emotion_str == "exhausted") {
+                } else if (emotion_str == "wink") {
+                    // wink -> winking
+                    motor_cmd = 3;
+                } else if (emotion_str == "😶" || emotion_str == "neutral") {
+                    // 1. 😶 - neutral
                     motor_cmd = 0;
-                } else if (emotion_str == "curious" || emotion_str == "👀" || emotion_str == "excited" ||
-                           emotion_str == "listening" || emotion_str == "👂") {
-                    motor_cmd = 1;  // Listening/curious mapped to happy motor action
+                } else if (emotion_str == "🙂" || emotion_str == "happy") {
+                    // 2. 🙂 - happy
+                    motor_cmd = 1;
+                } else if (emotion_str == "😆" || emotion_str == "laughing") {
+                    // 3. 😆 - laughing
+                    motor_cmd = 3;
+                } else if (emotion_str == "😂" || emotion_str == "funny") {
+                    // 4. 😂 - funny
+                    motor_cmd = 3;
+                } else if (emotion_str == "😔" || emotion_str == "sad") {
+                    // 5. 😔 - sad
+                    motor_cmd = 2;
+                } else if (emotion_str == "😠" || emotion_str == "angry") {
+                    // 6. 😠 - angry
+                    motor_cmd = 6;
+                } else if (emotion_str == "😭" || emotion_str == "crying") {
+                    // 7. 😭 - crying
+                    motor_cmd = 2;
+                } else if (emotion_str == "😍" || emotion_str == "loving") {
+                    // 8. 😍 - loving
+                    motor_cmd = 4;
+                } else if (emotion_str == "😳" || emotion_str == "embarrassed") {
+                    // 9. 😳 - embarrassed
+                    motor_cmd = 5;
+                } else if (emotion_str == "😲" || emotion_str == "surprised") {
+                    // 10. 😲 - surprised
+                    motor_cmd = 6;
+                } else if (emotion_str == "😱" || emotion_str == "shocked") {
+                    // 11. 😱 - shocked
+                    motor_cmd = 6;
+                } else if (emotion_str == "🤔" || emotion_str == "thinking") {
+                    // 12. 🤔 - thinking
+                    motor_cmd = 5;
+                } else if (emotion_str == "😉" || emotion_str == "winking") {
+                    // 13. 😉 - winking
+                    motor_cmd = 3;
+                } else if (emotion_str == "😎" || emotion_str == "cool") {
+                    // 14. 😎 - cool
+                    motor_cmd = 1;
+                } else if (emotion_str == "😌" || emotion_str == "relaxed") {
+                    // 15. 😌 - relaxed
+                    motor_cmd = 1;
+                } else if (emotion_str == "🤤" || emotion_str == "delicious") {
+                    // 16. 🤤 - delicious
+                    motor_cmd = 1;
+                } else if (emotion_str == "😘" || emotion_str == "kissy") {
+                    // 17. 😘 - kissy
+                    motor_cmd = 4;
+                } else if (emotion_str == "😏" || emotion_str == "confident") {
+                    // 18. 😏 - confident
+                    motor_cmd = 1;
+                } else if (emotion_str == "😴" || emotion_str == "sleepy") {
+                    // 19. 😴 - sleepy
+                    motor_cmd = 0;
+                } else if (emotion_str == "😜" || emotion_str == "silly") {
+                    // 20. 😜 - silly
+                    motor_cmd = 3;
+                } else if (emotion_str == "🙄" || emotion_str == "confused") {
+                    // 21. 🙄 - confused
+                    motor_cmd = 5;
                 } else {
                     // 如果 emotion 字段是原生 emoji 字符（例如 "😊"）但未覆盖上面分支，可在这里做更多指定
                     motor_cmd = 0;
@@ -1391,6 +1435,11 @@ void Application::MotorControlTask() {
                 if (gpio_config(&io_conf) == ESP_OK) {
                     gpio_initialized = true;
                     ESP_LOGI("Application", "电机GPIO初始化成功");
+                    // 立即将所有电机GPIO设置为低电平，确保电机不会在上电时转动
+                    gpio_set_level(MOTOR_LF_GPIO, 0);
+                    gpio_set_level(MOTOR_LB_GPIO, 0);
+                    gpio_set_level(MOTOR_RF_GPIO, 0);
+                    gpio_set_level(MOTOR_RB_GPIO, 0);
                 } else {
                     ESP_LOGE("Application", "电机GPIO初始化失败");
                     return;

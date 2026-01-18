@@ -233,6 +233,67 @@ public:
 
         ExecuteAction(random_action, random_on_time, random_off_time, 1);
     }
+
+    // Specific movement actions as requested
+    void MoveForward(int duration_ms = 5000) {
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 前进 - 向前走%d毫秒", duration_ms);
+        ExecuteAction(MOTOR_FORWARD, duration_ms, 0, 1);
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 前进完成");
+    }
+
+    void MoveBackward(int duration_ms = 5000) {
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 后退 - 向后走%d毫秒", duration_ms);
+        ExecuteAction(MOTOR_BACKWARD, duration_ms, 0, 1);
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 后退完成");
+    }
+
+    void SpinAround() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 转圈 - 旋转一圈");
+        // Assuming full rotation takes about 3 seconds at current speed
+        ExecuteAction(MOTOR_FULL_LEFT, 2500, 0, 1);
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 转圈完成");
+    }
+
+    void TurnLeftDuration(int duration_ms = 600) {
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 左转 - 向左转%d毫秒", duration_ms);
+        ExecuteAction(MOTOR_FULL_LEFT, duration_ms, 0, 1);
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 左转完成");
+    }
+
+    void TurnRightDuration(int duration_ms = 600) {
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 右转 - 向右转%d毫秒", duration_ms);
+        ExecuteAction(MOTOR_FULL_RIGHT, duration_ms, 0, 1);
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 右转完成");
+    }
+
+    // Additional useful movements
+    void QuickForward() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速前进 - 向前冲刺5秒");
+        ExecuteAction(MOTOR_FORWARD, 5000, 0, 1);
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速前进完成");
+    }
+
+    void QuickBackward() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速后退 - 向后退5秒");
+        ExecuteAction(MOTOR_BACKWARD, 5000, 0, 1);
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速后退完成");
+    }
+
+    void Wiggle() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 摆动 - 左右快速摆动");
+        ExecuteAction(MOTOR_FULL_LEFT, 300, 200, 3);
+        ExecuteAction(MOTOR_FULL_RIGHT, 300, 200, 3);
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 摆动完成");
+    }
+
+    void Dance() {
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 跳舞 - 欢快舞蹈");
+        ExecuteAction(MOTOR_FORWARD_LEFT, 500, 300, 2);
+        ExecuteAction(MOTOR_FORWARD_RIGHT, 500, 300, 2);
+        ExecuteAction(MOTOR_BACK_LEFT, 500, 300, 2);
+        ExecuteAction(MOTOR_BACK_RIGHT, 500, 300, 2);
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 跳舞完成");
+    }
 };
 
 #endif // _MOTOR_CONTROLLER_H_

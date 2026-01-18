@@ -39,6 +39,10 @@ uint8_t MAINCOLOR = 1; // drawings
 #define TIRED 1
 #define ANGRY 2
 #define HAPPY 3
+#define SURPRISED 4
+#define SLEEPY 5
+#define EVIL 6
+#define LOVING 7
 
 // For turning things on or off
 #define ON 1
@@ -81,6 +85,10 @@ bool tired = 0;
 bool angry = 0;
 bool happy = 0;
 bool curious = 0; // if true, draw the outer eye larger when looking left or right
+bool surprised = 0; // wide open eyes
+bool sleepy = 0; // half-closed eyes
+bool evil = 0; // squinted eyes with slant
+bool loving = 0; // heart-shaped eyes
 bool cyclops = 0; // if true, draw only one eye
 bool eyeL_open = 0; // left eye opened or closed?
 bool eyeR_open = 0; // right eye opened or closed?
@@ -143,6 +151,18 @@ byte eyelidsAngryHeightNext = eyelidsAngryHeight;
 byte eyelidsHappyBottomOffsetMax = (eyeLheightDefault/2)+3;
 byte eyelidsHappyBottomOffset = 0;
 byte eyelidsHappyBottomOffsetNext = 0;
+// Surprised eyes enlargement
+byte eyeSurprisedEnlargement = 0;
+byte eyeSurprisedEnlargementNext = 0;
+// Sleepy eyes reduction
+byte eyeSleepyReduction = 0;
+byte eyeSleepyReductionNext = 0;
+// Evil eye slant
+byte eyeEvilSlant = 0;
+byte eyeEvilSlantNext = 0;
+// Loving heart shape offset
+byte eyeLovingOffset = 0;
+byte eyeLovingOffsetNext = 0;
 // Space between eyes
 int spaceBetweenDefault = 10;
 int spaceBetweenCurrent = spaceBetweenDefault;
@@ -230,6 +250,10 @@ RoboEyes(AdafruitDisplay &disp) {
     angry = 0;
     happy = 0;
     curious = 0;
+    surprised = 0;
+    sleepy = 0;
+    evil = 0;
+    loving = 0;
     cyclops = 0;
     eyeL_open = 0;
     eyeR_open = 0;
@@ -275,6 +299,14 @@ RoboEyes(AdafruitDisplay &disp) {
     eyelidsHappyBottomOffsetMax = 21;
     eyelidsHappyBottomOffset = 0;
     eyelidsHappyBottomOffsetNext = 0;
+    eyeSurprisedEnlargement = 0;
+    eyeSurprisedEnlargementNext = 0;
+    eyeSleepyReduction = 0;
+    eyeSleepyReductionNext = 0;
+    eyeEvilSlant = 0;
+    eyeEvilSlantNext = 0;
+    eyeLovingOffset = 0;
+    eyeLovingOffsetNext = 0;
     spaceBetweenNext = 10;
     hFlicker = 0;
     hFlickerAlternate = 0;
@@ -389,24 +421,76 @@ void setMood(unsigned char mood)
     switch (mood)
     {
     case TIRED:
-      tired=1; 
-      angry=0; 
+      tired=1;
+      angry=0;
       happy=0;
+      surprised=0;
+      sleepy=0;
+      evil=0;
+      loving=0;
       break;
     case ANGRY:
-      tired=0; 
-      angry=1; 
+      tired=0;
+      angry=1;
       happy=0;
+      surprised=0;
+      sleepy=0;
+      evil=0;
+      loving=0;
       break;
     case HAPPY:
-      tired=0; 
-      angry=0; 
+      tired=0;
+      angry=0;
       happy=1;
+      surprised=0;
+      sleepy=0;
+      evil=0;
+      loving=0;
+      break;
+    case SURPRISED:
+      tired=0;
+      angry=0;
+      happy=0;
+      surprised=1;
+      sleepy=0;
+      evil=0;
+      loving=0;
+      break;
+    case SLEEPY:
+      tired=0;
+      angry=0;
+      happy=0;
+      surprised=0;
+      sleepy=1;
+      evil=0;
+      loving=0;
+      break;
+    case EVIL:
+      tired=0;
+      angry=0;
+      happy=0;
+      surprised=0;
+      sleepy=0;
+      evil=1;
+      loving=0;
+      break;
+    case LOVING:
+      tired=0;
+      angry=0;
+      happy=0;
+      surprised=0;
+      sleepy=0;
+      evil=0;
+      loving=1;
       break;
     default:
-      tired=0; 
-      angry=0; 
+      tired=0;
+      angry=0;
       happy=0;
+      surprised=0;
+      sleepy=0;
+      evil=0;
+      loving=0;
       break;
     }
   }
@@ -752,6 +836,10 @@ void drawEyes(){
   if (tired){eyelidsTiredHeightNext = eyeLheightCurrent/2; eyelidsAngryHeightNext = 0;} else{eyelidsTiredHeightNext = 0;}
   if (angry){eyelidsAngryHeightNext = eyeLheightCurrent/2; eyelidsTiredHeightNext = 0;} else{eyelidsAngryHeightNext = 0;}
   if (happy){eyelidsHappyBottomOffsetNext = eyeLheightCurrent/2;} else{eyelidsHappyBottomOffsetNext = 0;}
+  if (surprised){eyeSurprisedEnlargementNext = 4;} else{eyeSurprisedEnlargementNext = 0;} // make eyes larger
+  if (sleepy){eyeSleepyReductionNext = eyeLheightCurrent/3;} else{eyeSleepyReductionNext = 0;} // reduce eye height
+  if (evil){eyeEvilSlantNext = 3;} else{eyeEvilSlantNext = 0;} // slant the eyes
+  if (loving){eyeLovingOffsetNext = 2;} else{eyeLovingOffsetNext = 0;} // for heart shapes
 
   // Draw tired top eyelids 
     eyelidsTiredHeight = (eyelidsTiredHeight + eyelidsTiredHeightNext)/2;
@@ -810,6 +898,70 @@ void drawEyes(){
       sweat3XPos = sweat3XPosInitial-(sweat3Width/2); // keep the growing shape centered to initial x position
       display->fillRoundRect(sweat3XPos, sweat3YPos, sweat3Width, sweat3Height, sweatBorderradius, MAINCOLOR); // draw sweat drop
     }
+
+  // Draw new expression effects
+  eyeSurprisedEnlargement = (eyeSurprisedEnlargement + eyeSurprisedEnlargementNext)/2;
+  eyeSleepyReduction = (eyeSleepyReduction + eyeSleepyReductionNext)/2;
+  eyeEvilSlant = (eyeEvilSlant + eyeEvilSlantNext)/2;
+  eyeLovingOffset = (eyeLovingOffset + eyeLovingOffsetNext)/2;
+
+  // Surprised: draw larger white circles in the eyes to make them look bigger
+  if (surprised && eyeSurprisedEnlargement > 0) {
+    int pupilSize = 6 + eyeSurprisedEnlargement;
+    display->fillRoundRect(eyeLx + eyeLwidthCurrent/2 - pupilSize/2, eyeLy + eyeLheightCurrent/2 - pupilSize/2,
+                          pupilSize, pupilSize, pupilSize/2, BGCOLOR);
+    if (!cyclops) {
+      display->fillRoundRect(eyeRx + eyeRwidthCurrent/2 - pupilSize/2, eyeRy + eyeRheightCurrent/2 - pupilSize/2,
+                            pupilSize, pupilSize, pupilSize/2, BGCOLOR);
+    }
+  }
+
+  // Sleepy: draw half-closed eyelids
+  if (sleepy && eyeSleepyReduction > 0) {
+    if (!cyclops) {
+      display->fillTriangle(eyeLx, eyeLy + eyeLheightCurrent/2, eyeLx + eyeLwidthCurrent, eyeLy + eyeLheightCurrent/2,
+                           eyeLx, eyeLy + eyeLheightCurrent/2 + eyeSleepyReduction, BGCOLOR);
+      display->fillTriangle(eyeRx, eyeRy + eyeRheightCurrent/2, eyeRx + eyeRwidthCurrent, eyeRy + eyeRheightCurrent/2,
+                           eyeRx + eyeRwidthCurrent, eyeRy + eyeRheightCurrent/2 + eyeSleepyReduction, BGCOLOR);
+    } else {
+      display->fillTriangle(eyeLx, eyeLy + eyeLheightCurrent/2, eyeLx + eyeLwidthCurrent, eyeLy + eyeLheightCurrent/2,
+                           eyeLx + eyeLwidthCurrent/2, eyeLy + eyeLheightCurrent/2 + eyeSleepyReduction, BGCOLOR);
+    }
+  }
+
+  // Evil: draw slanted lines to make eyes look evil
+  if (evil && eyeEvilSlant > 0) {
+    display->fillTriangle(eyeLx + eyeLwidthCurrent/4, eyeLy - eyeEvilSlant,
+                         eyeLx + eyeLwidthCurrent*3/4, eyeLy + eyeEvilSlant,
+                         eyeLx + eyeLwidthCurrent/4, eyeLy + eyeEvilSlant, MAINCOLOR);
+    if (!cyclops) {
+      display->fillTriangle(eyeRx + eyeRwidthCurrent/4, eyeRy - eyeEvilSlant,
+                           eyeRx + eyeRwidthCurrent*3/4, eyeRy + eyeEvilSlant,
+                           eyeRx + eyeRwidthCurrent/4, eyeRy + eyeEvilSlant, MAINCOLOR);
+    }
+  }
+
+  // Loving: draw heart shapes above the eyes
+  if (loving && eyeLovingOffset > 0) {
+    int heartX = eyeLx + eyeLwidthCurrent/2;
+    int heartY = eyeLy - 8 - eyeLovingOffset;
+    // Left half of heart
+    display->fillTriangle(heartX - 3, heartY + 2, heartX, heartY - 2, heartX + 2, heartY + 2, MAINCOLOR);
+    // Right half of heart
+    display->fillTriangle(heartX - 2, heartY + 2, heartX, heartY - 2, heartX + 3, heartY + 2, MAINCOLOR);
+    // Bottom of heart
+    display->fillTriangle(heartX - 3, heartY + 2, heartX + 3, heartY + 2, heartX, heartY + 5, MAINCOLOR);
+
+    if (!cyclops) {
+      heartX = eyeRx + eyeRwidthCurrent/2;
+      // Left half of heart
+      display->fillTriangle(heartX - 3, heartY + 2, heartX, heartY - 2, heartX + 2, heartY + 2, MAINCOLOR);
+      // Right half of heart
+      display->fillTriangle(heartX - 2, heartY + 2, heartX, heartY - 2, heartX + 3, heartY + 2, MAINCOLOR);
+      // Bottom of heart
+      display->fillTriangle(heartX - 3, heartY + 2, heartX + 3, heartY + 2, heartX, heartY + 5, MAINCOLOR);
+    }
+  }
 
   display->display(); // show drawings on display
 
