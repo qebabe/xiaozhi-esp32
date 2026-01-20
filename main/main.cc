@@ -11,10 +11,20 @@
 #include "system_info.h"
 
 // Motor control pins (defined in config.h, but we need them early)
-#define MOTOR_LF_GPIO GPIO_NUM_8   // Left Forward
-#define MOTOR_LB_GPIO GPIO_NUM_19  // Left Backward
-#define MOTOR_RF_GPIO GPIO_NUM_20  // Right Forward
+// Try to include board `config.h` if available so board-level overrides take effect.
+#if defined(__has_include)
+#  if __has_include("config.h")
+#    include "config.h"
+#  endif
+#endif
+
+// Provide guarded defaults if the board did not define MOTOR_* pins
+#ifndef MOTOR_LF_GPIO
+#define MOTOR_LF_GPIO GPIO_NUM_12   // Left Forward
+#define MOTOR_LB_GPIO GPIO_NUM_13  // Left Backward
+#define MOTOR_RF_GPIO GPIO_NUM_14  // Right Forward
 #define MOTOR_RB_GPIO GPIO_NUM_21  // Right Backward (was GPIO_NUM_3)
+#endif
 
 #define TAG "main"
 

@@ -30,9 +30,9 @@
 
 // 如果没有提供 BOARD 层的 MOTOR_* 定义，提供默认值以便本文件在不同环境下也能编译
 #ifndef MOTOR_LF_GPIO
-#define MOTOR_LF_GPIO GPIO_NUM_8
-#define MOTOR_LB_GPIO GPIO_NUM_19
-#define MOTOR_RF_GPIO GPIO_NUM_20
+#define MOTOR_LF_GPIO GPIO_NUM_12
+#define MOTOR_LB_GPIO GPIO_NUM_13
+#define MOTOR_RF_GPIO GPIO_NUM_14
 #define MOTOR_RB_GPIO GPIO_NUM_21
 #endif
 

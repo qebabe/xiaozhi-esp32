@@ -58,9 +58,9 @@
 
 // Motor control pins for TC1508 module (N20 motors as wheels)
 // Temporarily changed MOTOR_RB_GPIO from GPIO_NUM_3 to GPIO_NUM_21 to avoid strapping pin issues
-#define MOTOR_LF_GPIO GPIO_NUM_8   // Left Forward
-#define MOTOR_LB_GPIO GPIO_NUM_19  // Left Backward
-#define MOTOR_RF_GPIO GPIO_NUM_20  // Right Forward
+#define MOTOR_LF_GPIO GPIO_NUM_12   // Left Forward
+#define MOTOR_LB_GPIO GPIO_NUM_13  // Left Backward
+#define MOTOR_RF_GPIO GPIO_NUM_14  // Right Forward
 #define MOTOR_RB_GPIO GPIO_NUM_21  // Right Backward (was GPIO_NUM_3)
 
 #endif // _BOARD_CONFIG_H_
