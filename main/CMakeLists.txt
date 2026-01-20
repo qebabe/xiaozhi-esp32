@@ -29,6 +29,7 @@ set(SOURCES "audio/audio_codec.cc"
             "protocols/protocol.cc"
             "protocols/mqtt_protocol.cc"
             "protocols/websocket_protocol.cc"
+            "web_server/web_server.cc"
             "mcp_server.cc"
             "system_info.cc"
             "application.cc"
@@ -39,7 +40,7 @@ set(SOURCES "audio/audio_codec.cc"
             "main.cc"
             )
 
-set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "protocols")
+set(INCLUDE_DIRS "." "display" "display/lvgl_display" "display/lvgl_display/jpg" "audio" "protocols" "web_server")
 list(APPEND INCLUDE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/roboeyes/src")
 
 # Add board common files

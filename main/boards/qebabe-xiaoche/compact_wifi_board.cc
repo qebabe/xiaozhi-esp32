@@ -1,3 +1,4 @@
+#include "compact_wifi_board.h"
 #include "wifi_board.h"
 #include "codecs/no_audio_codec.h"
 #include "display/oled_display.h"
@@ -9,7 +10,10 @@
 #include "lamp_controller.h"
 #include "led/single_led.h"
 #include "assets/lang_config.h"
-#include "motor_controller.h"
+#include <wifi_manager.h>
+
+// Forward declaration for Application function
+extern "C" void HandleMotorActionForApplication(int direction, int speed, int duration_ms, int priority);
 
 
 
@@ -26,12 +30,7 @@
 
 #define TAG "CompactWifiBoard"
 
-// Forward declaration
-class CompactWifiBoard;
-
 // Global pointer to motor controller for Application callbacks
-static CompactWifiBoard* g_motor_board = nullptr;
-
 class CompactWifiBoard : public WifiBoard {
 private:
     i2c_master_bus_handle_t display_i2c_bus_;
@@ -42,7 +41,6 @@ private:
     Button touch_button_;
     Button volume_up_button_;
     Button volume_down_button_;
-    MotorController* motor_controller_ = nullptr;
 
     void InitializeDisplayI2c() {
         i2c_master_bus_config_t bus_config = {
@@ -164,103 +162,176 @@ private:
     // 物联网初始化，逐步迁移到 MCP 协议
     void InitializeTools() {
         static LampController lamp(LAMP_GPIO);
-        motor_controller_ = new MotorController(MOTOR_LF_GPIO, MOTOR_LB_GPIO, MOTOR_RF_GPIO, MOTOR_RB_GPIO);
+        // No longer using MotorController - all motor control goes through Application
 
         // Add motor control tools to MCP server
         auto& mcp_server = McpServer::GetInstance();
 
         mcp_server.AddTool("self.motor.move_forward",
-            "Move the robot forward. If no duration is specified, moves for 5 seconds. You can specify a custom duration in milliseconds.",
+            "Move the robot forward with specified speed and duration.\n"
+            "Args:\n"
+            "  `speed_percent`: Motor speed (0-100), default 100\n"
+            "  `duration_ms`: Movement duration in milliseconds, default 5000\n"
+            "Return:\n"
+            "  Success message with parameters",
             PropertyList({
-                Property("duration_ms", kPropertyTypeInteger, 5000, 100, 10000)  // Default 5000ms, range 100ms to 10s
+                Property("speed_percent", kPropertyTypeInteger, 100, 0, 100),
+                Property("duration_ms", kPropertyTypeInteger, 5000, 100, 10000)
             }),
             [this](const PropertyList& properties) -> ReturnValue {
+                int speed = properties["speed_percent"].value<int>();
                 int duration = properties["duration_ms"].value<int>();
-                MotorMoveForward(duration);
-                return std::string("Moved forward for ") + std::to_string(duration) + "ms";
+                MotorMoveForward(duration, speed);
+                return std::string("Moved forward at ") + std::to_string(speed) + "% speed for " + std::to_string(duration) + "ms";
             });
 
         mcp_server.AddTool("self.motor.move_backward",
-            "Move the robot backward. If no duration is specified, moves for 5 seconds. You can specify a custom duration in milliseconds.",
+            "Move the robot backward with specified speed and duration.\n"
+            "Args:\n"
+            "  `speed_percent`: Motor speed (0-100), default 100\n"
+            "  `duration_ms`: Movement duration in milliseconds, default 5000\n"
+            "Return:\n"
+            "  Success message with parameters",
             PropertyList({
-                Property("duration_ms", kPropertyTypeInteger, 5000, 100, 10000)  // Default 5000ms, range 100ms to 10s
+                Property("speed_percent", kPropertyTypeInteger, 100, 0, 100),
+                Property("duration_ms", kPropertyTypeInteger, 5000, 100, 10000)
             }),
             [this](const PropertyList& properties) -> ReturnValue {
+                int speed = properties["speed_percent"].value<int>();
                 int duration = properties["duration_ms"].value<int>();
-                MotorMoveBackward(duration);
-                return std::string("Moved backward for ") + std::to_string(duration) + "ms";
+                MotorMoveBackward(duration, speed);
+                return std::string("Moved backward at ") + std::to_string(speed) + "% speed for " + std::to_string(duration) + "ms";
             });
 
         mcp_server.AddTool("self.motor.spin_around",
-            "Spin the robot around in a full circle",
-            PropertyList(),
+            "Spin the robot around in a full circle with specified speed.\n"
+            "Args:\n"
+            "  `speed_percent`: Motor speed (0-100), default 100\n"
+            "Return:\n"
+            "  Success message",
+            PropertyList({
+                Property("speed_percent", kPropertyTypeInteger, 100, 0, 100)
+            }),
             [this](const PropertyList& properties) -> ReturnValue {
-                MotorSpinAround();
-                return std::string("Spin around completed");
+                int speed = properties["speed_percent"].value<int>();
+                MotorSpinAround(speed);
+                return std::string("Spin around completed at ") + std::to_string(speed) + "% speed";
             });
 
         mcp_server.AddTool("self.motor.turn_left",
-            "Turn the robot left. If no duration is specified, turns for 0.6 seconds (approximately 90 degrees). You can specify a custom duration in milliseconds.",
+            "Turn the robot left with specified speed and duration.\n"
+            "Args:\n"
+            "  `speed_percent`: Motor speed (0-100), default 100\n"
+            "  `duration_ms`: Turn duration in milliseconds, default 600 (approx 90 degrees)\n"
+            "Return:\n"
+            "  Success message with parameters",
             PropertyList({
-                Property("duration_ms", kPropertyTypeInteger, 600, 100, 5000)  // Default 600ms, range 100ms to 5s
+                Property("speed_percent", kPropertyTypeInteger, 100, 0, 100),
+                Property("duration_ms", kPropertyTypeInteger, 600, 100, 5000)
             }),
             [this](const PropertyList& properties) -> ReturnValue {
+                int speed = properties["speed_percent"].value<int>();
                 int duration = properties["duration_ms"].value<int>();
-                MotorTurnLeftDuration(duration);
-                return std::string("Turned left for ") + std::to_string(duration) + "ms";
+                MotorTurnLeftDuration(duration, speed);
+                return std::string("Turned left at ") + std::to_string(speed) + "% speed for " + std::to_string(duration) + "ms";
             });
 
         mcp_server.AddTool("self.motor.turn_right",
-            "Turn the robot right. If no duration is specified, turns for 0.6 seconds (approximately 90 degrees). You can specify a custom duration in milliseconds.",
+            "Turn the robot right with specified speed and duration.\n"
+            "Args:\n"
+            "  `speed_percent`: Motor speed (0-100), default 100\n"
+            "  `duration_ms`: Turn duration in milliseconds, default 600 (approx 90 degrees)\n"
+            "Return:\n"
+            "  Success message with parameters",
             PropertyList({
-                Property("duration_ms", kPropertyTypeInteger, 600, 100, 5000)  // Default 600ms, range 100ms to 5s
+                Property("speed_percent", kPropertyTypeInteger, 100, 0, 100),
+                Property("duration_ms", kPropertyTypeInteger, 600, 100, 5000)
             }),
             [this](const PropertyList& properties) -> ReturnValue {
+                int speed = properties["speed_percent"].value<int>();
                 int duration = properties["duration_ms"].value<int>();
-                MotorTurnRightDuration(duration);
-                return std::string("Turned right for ") + std::to_string(duration) + "ms";
+                MotorTurnRightDuration(duration, speed);
+                return std::string("Turned right at ") + std::to_string(speed) + "% speed for " + std::to_string(duration) + "ms";
             });
 
         mcp_server.AddTool("self.motor.quick_forward",
-            "Quick forward movement for 5 seconds",
-            PropertyList(),
+            "Quick forward movement for 0.5 seconds with specified speed.\n"
+            "Args:\n"
+            "  `speed_percent`: Motor speed (0-100), default 100\n"
+            "Return:\n"
+            "  Success message",
+            PropertyList({
+                Property("speed_percent", kPropertyTypeInteger, 100, 0, 100)
+            }),
             [this](const PropertyList& properties) -> ReturnValue {
-                MotorQuickForward();
-                return std::string("Quick forward movement completed");
+                int speed = properties["speed_percent"].value<int>();
+                MotorQuickForward(speed);
+                return std::string("Quick forward movement completed at ") + std::to_string(speed) + "% speed";
             });
 
         mcp_server.AddTool("self.motor.quick_backward",
-            "Quick backward movement for 5 seconds",
-            PropertyList(),
+            "Quick backward movement for 0.5 seconds with specified speed.\n"
+            "Args:\n"
+            "  `speed_percent`: Motor speed (0-100), default 100\n"
+            "Return:\n"
+            "  Success message",
+            PropertyList({
+                Property("speed_percent", kPropertyTypeInteger, 100, 0, 100)
+            }),
             [this](const PropertyList& properties) -> ReturnValue {
-                MotorQuickBackward();
-                return std::string("Quick backward movement completed");
+                int speed = properties["speed_percent"].value<int>();
+                MotorQuickBackward(speed);
+                return std::string("Quick backward movement completed at ") + std::to_string(speed) + "% speed";
             });
 
         mcp_server.AddTool("self.motor.wiggle",
-            "Make the robot wiggle left and right",
-            PropertyList(),
+            "Make the robot perform a quick wiggle movement (turn right briefly).\n"
+            "Args:\n"
+            "  `speed_percent`: Motor speed (0-100), default 100\n"
+            "Return:\n"
+            "  Success message",
+            PropertyList({
+                Property("speed_percent", kPropertyTypeInteger, 100, 0, 100)
+            }),
             [this](const PropertyList& properties) -> ReturnValue {
-                MotorWiggle();
-                return std::string("Wiggle completed");
+                int speed = properties["speed_percent"].value<int>();
+                MotorWiggle(speed);
+                return std::string("Wiggle movement completed at ") + std::to_string(speed) + "% speed";
             });
 
         mcp_server.AddTool("self.motor.dance",
-            "Make the robot perform a dance routine",
-            PropertyList(),
+            "Make the robot perform a quick dance movement (move forward briefly).\n"
+            "Args:\n"
+            "  `speed_percent`: Motor speed (0-100), default 100\n"
+            "Return:\n"
+            "  Success message",
+            PropertyList({
+                Property("speed_percent", kPropertyTypeInteger, 100, 0, 100)
+            }),
             [this](const PropertyList& properties) -> ReturnValue {
-                MotorDance();
-                return std::string("Dance completed");
+                int speed = properties["speed_percent"].value<int>();
+                MotorDance(speed);
+                return std::string("Dance movement completed at ") + std::to_string(speed) + "% speed";
             });
 
         mcp_server.AddTool("self.motor.stop",
             "Stop all motor movement immediately",
             PropertyList(),
-            [this](const PropertyList& properties) -> ReturnValue {
-                if (motor_controller_) {
-                    motor_controller_->Stop();
-                }
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForApplication(0, 0, 0, 2); // Stop, high priority
                 return std::string("Motor stopped");
+            });
+
+        mcp_server.AddTool("self.network.get_ip",
+            "获取当前WiFi IP地址信息，用于语音播报或状态查询",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                auto& wifi = WifiManager::GetInstance();
+                std::string ip = wifi.GetIpAddress();
+                if (ip.empty()) {
+                    return std::string("当前未连接到WiFi网络，无法获取IP地址");
+                }
+                return std::string("当前IP地址是") + ip;
             });
     }
 
@@ -269,85 +340,58 @@ private:
         return &led;
     }
 
-    // Direct motor control methods
-    void MotorForward(int duration_ms = 500) {
-        if (motor_controller_) {
-            motor_controller_->ExecuteAction(MOTOR_FORWARD, duration_ms, 0, 1);
-        }
+    // Unified motor control through Application (single PWM system)
+    void MotorMoveForward(int duration_ms = 5000, uint8_t speed_percent = 100) {
+        HandleMotorActionForApplication(4, speed_percent, duration_ms, 2); // 4 = forward, high priority
     }
 
-    void MotorBackward(int duration_ms = 500) {
-        if (motor_controller_) {
-            motor_controller_->ExecuteAction(MOTOR_BACKWARD, duration_ms, 0, 1);
-        }
+    void MotorMoveBackward(int duration_ms = 5000, uint8_t speed_percent = 100) {
+        HandleMotorActionForApplication(2, speed_percent, duration_ms, 2); // 2 = backward, high priority
     }
 
-    void MotorTurnLeft(int duration_ms = 300) {
-        if (motor_controller_) {
-            motor_controller_->ExecuteAction(MOTOR_FULL_LEFT, duration_ms, 0, 1);
-        }
+    void MotorTurnLeft(int duration_ms = 300, uint8_t speed_percent = 100) {
+        HandleMotorActionForApplication(3, speed_percent, duration_ms, 2); // 3 = left, high priority
     }
 
-    void MotorTurnRight(int duration_ms = 300) {
-        if (motor_controller_) {
-            motor_controller_->ExecuteAction(MOTOR_FULL_RIGHT, duration_ms, 0, 1);
-        }
+    void MotorTurnRight(int duration_ms = 300, uint8_t speed_percent = 100) {
+        HandleMotorActionForApplication(1, speed_percent, duration_ms, 2); // 1 = right, high priority
     }
 
-    // Specific movement actions as requested
-    void MotorMoveForward(int duration_ms = 5000) {
-        if (motor_controller_) {
-            motor_controller_->MoveForward(duration_ms);
-        }
+    // Alias for compatibility
+    void MotorTurnLeftDuration(int duration_ms = 600, uint8_t speed_percent = 100) {
+        MotorTurnLeft(duration_ms, speed_percent);
     }
 
-    void MotorMoveBackward(int duration_ms = 5000) {
-        if (motor_controller_) {
-            motor_controller_->MoveBackward(duration_ms);
-        }
+    void MotorTurnRightDuration(int duration_ms = 600, uint8_t speed_percent = 100) {
+        MotorTurnRight(duration_ms, speed_percent);
     }
 
-    void MotorSpinAround() {
-        if (motor_controller_) {
-            motor_controller_->SpinAround();
-        }
+    void MotorStop() {
+        HandleMotorActionForApplication(0, 0, 0, 2); // 0 = stop, high priority
     }
 
-    void MotorTurnLeftDuration(int duration_ms = 600) {
-        if (motor_controller_) {
-            motor_controller_->TurnLeftDuration(duration_ms);
-        }
+    void MotorSpinAround(uint8_t speed_percent = 100) {
+        HandleMotorActionForApplication(3, speed_percent, 2000, 2); // Spin = turn left longer, high priority
     }
 
-    void MotorTurnRightDuration(int duration_ms = 600) {
-        if (motor_controller_) {
-            motor_controller_->TurnRightDuration(duration_ms);
-        }
+    void MotorQuickForward(uint8_t speed_percent = 100) {
+        HandleMotorActionForApplication(4, speed_percent, 500, 2); // Quick forward, high priority
     }
 
-    // Additional useful movements
-    void MotorQuickForward() {
-        if (motor_controller_) {
-            motor_controller_->QuickForward();
-        }
+    void MotorQuickBackward(uint8_t speed_percent = 100) {
+        HandleMotorActionForApplication(2, speed_percent, 500, 2); // Quick backward, high priority
     }
 
-    void MotorQuickBackward() {
-        if (motor_controller_) {
-            motor_controller_->QuickBackward();
-        }
+    void MotorWiggle(uint8_t speed_percent = 100) {
+        // Simple wiggle - just a quick left-right movement for MCP calls
+        // Since MCP calls are synchronous, we can't use delays
+        HandleMotorActionForApplication(1, speed_percent, 300, 2); // right turn, high priority
     }
 
-    void MotorWiggle() {
-        if (motor_controller_) {
-            motor_controller_->Wiggle();
-        }
-    }
-
-    void MotorDance() {
-        if (motor_controller_) {
-            motor_controller_->Dance();
-        }
+    void MotorDance(uint8_t speed_percent = 100) {
+        // Simple dance - just a quick forward movement for MCP calls
+        // Complex sequences don't work well in synchronous MCP context
+        HandleMotorActionForApplication(4, speed_percent, 400, 2); // forward, high priority
     }
 
 public:
@@ -356,7 +400,6 @@ public:
         touch_button_(TOUCH_BUTTON_GPIO),
         volume_up_button_(VOLUME_UP_BUTTON_GPIO),
         volume_down_button_(VOLUME_DOWN_BUTTON_GPIO) {
-        g_motor_board = this;
         InitializeDisplayI2c();
         InitializeSsd1306Display();
         InitializeButtons();
@@ -414,79 +457,35 @@ public:
         PerformMotorAction(1, 250); // FORWARD for 250ms - 前进表示说话
     }
 
-    // 简单的电机动作执行函数
-    void PerformMotorAction(int action, int duration_ms) {
-        static bool gpio_initialized = false;
-
-        // 初始化GPIO（只执行一次）
-        if (!gpio_initialized) {
-            gpio_config_t io_conf = {};
-            io_conf.intr_type = GPIO_INTR_DISABLE;
-            io_conf.mode = GPIO_MODE_OUTPUT;
-            io_conf.pin_bit_mask = (1ULL << MOTOR_LF_GPIO) | (1ULL << MOTOR_LB_GPIO) | (1ULL << MOTOR_RF_GPIO) | (1ULL << MOTOR_RB_GPIO);
-            io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-            io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-
-            if (gpio_config(&io_conf) == ESP_OK) {
-                gpio_initialized = true;
-            }
-        }
-
-        if (!gpio_initialized) return;
-
-        // 执行电机动作，使用config.h中定义的宏
-        switch (action) {
-            case 1: // FORWARD
-                gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
-                gpio_set_level(MOTOR_LB_GPIO, 0); // LB
-                gpio_set_level(MOTOR_RF_GPIO, 1); // RF
-                gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
-                vTaskDelay(pdMS_TO_TICKS(duration_ms));
-                gpio_set_level(MOTOR_LF_GPIO, 0);
-                gpio_set_level(MOTOR_LB_GPIO, 0);
-                gpio_set_level(MOTOR_RF_GPIO, 0);
-                gpio_set_level(MOTOR_RB_GPIO, 0);
-                break;
-            case 2: // BACKWARD
-                gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
-                gpio_set_level(MOTOR_LB_GPIO, 1); // LB
-                gpio_set_level(MOTOR_RF_GPIO, 0); // RF
-                gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
-                vTaskDelay(pdMS_TO_TICKS(duration_ms));
-                gpio_set_level(MOTOR_LF_GPIO, 0);
-                gpio_set_level(MOTOR_LB_GPIO, 0);
-                gpio_set_level(MOTOR_RF_GPIO, 0);
-                gpio_set_level(MOTOR_RB_GPIO, 0);
-                break;
-            case 3: // LEFT
-                gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
-                gpio_set_level(MOTOR_LB_GPIO, 1); // LB
-                gpio_set_level(MOTOR_RF_GPIO, 1); // RF
-                gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
-                vTaskDelay(pdMS_TO_TICKS(duration_ms));
-                gpio_set_level(MOTOR_LF_GPIO, 0);
-                gpio_set_level(MOTOR_LB_GPIO, 0);
-                gpio_set_level(MOTOR_RF_GPIO, 0);
-                gpio_set_level(MOTOR_RB_GPIO, 0);
-                break;
-            case 4: // RIGHT
-                gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
-                gpio_set_level(MOTOR_LB_GPIO, 0); // LB
-                gpio_set_level(MOTOR_RF_GPIO, 0); // RF
-                gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
-                vTaskDelay(pdMS_TO_TICKS(duration_ms));
-                gpio_set_level(MOTOR_LF_GPIO, 0);
-                gpio_set_level(MOTOR_LB_GPIO, 0);
-                gpio_set_level(MOTOR_RF_GPIO, 0);
-                gpio_set_level(MOTOR_RB_GPIO, 0);
-                break;
+    void OnIdle() {
+        if ((esp_random() % 100) < 50) { // 5% chance for random movement
+            ESP_LOGI(TAG, "电机空闲: 随机动作被触发 (5%概率)");
+            // Simple random movement using Application's motor control
+            int random_action = (esp_random() % 4) + 1; // 1-4 for different directions
+            HandleMotorActionForApplication(random_action, 60, 500, 0); // 60% speed, 500ms duration, low priority
         }
     }
 
-    void OnIdle() {
-        if (motor_controller_ && (esp_random() % 100) < 50) { // 5% chance for random movement
-            ESP_LOGI(TAG, "电机空闲: 随机动作被触发 (5%概率)");
-            motor_controller_->RandomMovement();
+    // 电机动作执行函数实现 - 使用Application的统一PWM系统
+    void PerformMotorAction(int action, int duration_ms) {
+        uint8_t speed_percent = 80; // 使用80%的速度进行情感表达动作
+
+        // Emotion actions use medium priority (1) - can be interrupted by MCP commands (2) but not by lower priority
+        switch (action) {
+            case 1: // FORWARD
+                HandleMotorActionForApplication(4, speed_percent, duration_ms, 1);
+                break;
+            case 2: // BACKWARD
+                HandleMotorActionForApplication(2, speed_percent, duration_ms, 1);
+                break;
+            case 3: // LEFT
+                HandleMotorActionForApplication(3, speed_percent, duration_ms, 1);
+                break;
+            case 4: // RIGHT
+                HandleMotorActionForApplication(1, speed_percent, duration_ms, 1);
+                break;
+            default:
+                break;
         }
     }
 };

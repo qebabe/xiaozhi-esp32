@@ -9,13 +9,16 @@
 #include "mcp_server.h"
 #include "assets.h"
 #include "settings.h"
+#include "web_server/web_server.h"
 
 #include <cstring>
 #include <esp_log.h>
 #include <cJSON.h>
+#include <driver/ledc.h>
 #include <driver/gpio.h>
 #include <arpa/inet.h>
 #include <font_awesome.h>
+#include <tuple>
 
 #define TAG "Application"
 // 包含板级引脚配置（由选定的 board 提供的 config.h）
@@ -51,9 +54,7 @@ extern "C" void HandleMotorActionForEmotion(const char* emotion) __attribute__((
 extern "C" void (*HandleMotorActionForEmotionPtr)(const char* emotion) __attribute__((weak));
 extern "C" void (*HandleMotorIdleActionPtr)(void) __attribute__((weak));
 
-// Motor control task
-static QueueHandle_t motor_control_queue_ = nullptr;
-static TaskHandle_t motor_control_task_handle_ = nullptr;
+// Motor control task (deprecated - now using global functions)
 
 // Motor action flags for state-based actions
 static volatile bool motor_action_pending_ = false;
@@ -66,6 +67,9 @@ Application::Application() {
     // 构造函数说明（中文）：
     // 创建事件组、定时器等基础资源。实际的电机队列和任务在 Initialize() 中创建，
     // 以保证硬件和系统资源已完成初始化。
+
+    // 初始化Web服务器
+    web_server_ = std::make_unique<WebServer>();
 
 #if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
 #error "CONFIG_USE_DEVICE_AEC and CONFIG_USE_SERVER_AEC cannot be enabled at the same time"
@@ -98,15 +102,7 @@ Application::~Application() {
         esp_timer_delete(clock_timer_handle_);
     }
 
-    // Clean up motor control task and queue
-    if (motor_control_task_handle_ != nullptr) {
-        vTaskDelete(motor_control_task_handle_);
-        motor_control_task_handle_ = nullptr;
-    }
-    if (motor_control_queue_ != nullptr) {
-        vQueueDelete(motor_control_queue_);
-        motor_control_queue_ = nullptr;
-    }
+    // Removed old motor control task and queue cleanup - now using unified PWM system
 
     vEventGroupDelete(event_group_);
 }
@@ -353,12 +349,7 @@ void Application::Run() {
             // Handle motor idle actions (only on boards that support it)
             // Use separate motor control task to avoid stability issues
             // Trigger motor control every 30 seconds to reduce frequency
-            if (GetDeviceState() == kDeviceStateIdle &&
-                clock_ticks_ > 60 && // Wait at least 60 seconds after startup for full stabilization
-                clock_ticks_ % 30 == 0 && // Every 30 seconds
-                motor_control_task_handle_ != nullptr) {
-                TriggerMotorControl();
-            }
+            // Removed old motor control task trigger - now using unified PWM system
 
             // Handle motor actions for device state changes (wake up, listening, speaking)
             static DeviceState last_state = kDeviceStateUnknown;
@@ -384,8 +375,8 @@ void Application::Run() {
                 last_state = current_state;
             }
 
-            // Execute pending motor actions
-            if (motor_action_pending_ && motor_control_task_handle_ != nullptr) {
+            // Execute pending motor actions - now using unified PWM system
+            if (motor_action_pending_) {
                 if (motor_action_type_ == 1) {
                     ESP_LOGI("Application", "执行唤醒电机动作");
                     TriggerMotorEmotion(1); // Wake action
@@ -462,6 +453,24 @@ void Application::HandleActivationDoneEvent() {
     ota_.reset();
     auto& board = Board::GetInstance();
     board.SetPowerSaveLevel(PowerSaveLevel::LOW_POWER);
+
+    // Start web server for remote control
+    web_server_->SetMotorControlCallback([this](int direction, int speed) {
+        HandleWebMotorControl(direction, speed);
+    });
+
+    if (web_server_->Start(80)) {
+        ESP_LOGI(TAG, "Web server started successfully on port 80");
+        display->ShowNotification("Web控制已启用", 2000);
+
+        // Initialize MotorController PWM after web server is ready
+        // (LEDC should be fully initialized by now)
+        // For now, we'll rely on the fact that CompactWifiBoard is the only board type
+        // and PWM will be initialized when motor control is first used
+    } else {
+        ESP_LOGE(TAG, "Failed to start web server");
+        display->ShowNotification("Web控制启动失败", 2000);
+    }
 }
 
 void Application::ActivationTask() {
@@ -613,17 +622,7 @@ void Application::CheckNewVersion() {
         }
     }
 
-    // Create motor control queue and task after full initialization
-    motor_control_queue_ = xQueueCreate(5, sizeof(int)); // Queue for motor commands
-    if (motor_control_queue_ != nullptr) {
-        xTaskCreate([](void* arg) {
-            auto* app = static_cast<Application*>(arg);
-            app->MotorControlTask();
-        }, "motor_ctrl", 4096, this, tskIDLE_PRIORITY + 1, &motor_control_task_handle_);
-        ESP_LOGI("Application", "电机控制任务已创建");
-    } else {
-        ESP_LOGE("Application", "创建电机控制队列失败");
-    }
+    // Removed old motor control queue and task - now using unified PWM system
 }
 
 void Application::InitializeProtocol() {
@@ -1412,266 +1411,306 @@ void Application::ResetProtocol() {
     });
 }
 
-void Application::MotorControlTask() {
-    ESP_LOGI("Application", "电机控制任务已启动");
-
-    while (true) {
-        int command;
-        // Wait for motor control commands with timeout
-        if (xQueueReceive(motor_control_queue_, &command, pdMS_TO_TICKS(1000)) == pdTRUE) {
-            // 直接实现简单的电机控制，避免复杂的对象调用链
-            static bool gpio_initialized = false;
-
-            // 初始化GPIO（只执行一次）
-            if (!gpio_initialized) {
-                // 配置电机控制GPIO引脚 (使用config.h中定义的引脚)
-                gpio_config_t io_conf = {};
-                io_conf.intr_type = GPIO_INTR_DISABLE;
-                io_conf.mode = GPIO_MODE_OUTPUT;
-                io_conf.pin_bit_mask = (1ULL << MOTOR_LF_GPIO) | (1ULL << MOTOR_LB_GPIO) | (1ULL << MOTOR_RF_GPIO) | (1ULL << MOTOR_RB_GPIO); // LF, LB, RF, RB
-                io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-                io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-
-                if (gpio_config(&io_conf) == ESP_OK) {
-                    gpio_initialized = true;
-                    ESP_LOGI("Application", "电机GPIO初始化成功");
-                    // 立即将所有电机GPIO设置为低电平，确保电机不会在上电时转动
-                    gpio_set_level(MOTOR_LF_GPIO, 0);
-                    gpio_set_level(MOTOR_LB_GPIO, 0);
-                    gpio_set_level(MOTOR_RF_GPIO, 0);
-                    gpio_set_level(MOTOR_RB_GPIO, 0);
-                } else {
-                    ESP_LOGE("Application", "电机GPIO初始化失败");
-                    return;
-                }
-            }
-
-            // MotorControlTask 说明（中文）：
-            // 该任务在单独线程中运行，负责接收并执行来自主任务的电机命令。
-            // 命令约定（在 InitializeProtocol 中也有说明）：
-            // 0: 随机空闲动作（或无动作）
-            // 1: 短促向前（温柔 / 开心）
-            // 2: 短促向后（悲伤 / 哭）
-            // 3: 左右快摆（顽皮 / 笑）
-            // 4: 轻点/点头（喜欢 / 自信 / 酷）
-            // 5: 轻微倾斜/停顿（困惑 / 尴尬 / 思考）
-            // 6: 突然/强烈动作（惊讶 / 震惊 / 生气）
-
-            if (gpio_initialized) {
-                // 根据命令类型执行不同的动作
-                switch (command) {
-                    case 1: { // 短促向前 (温柔 / 开心)
-                        ESP_LOGI("Application", "电机动作: 短促向前 (cmd=1)");
-                        gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
-                        gpio_set_level(MOTOR_LB_GPIO, 0); // LB
-                        gpio_set_level(MOTOR_RF_GPIO, 1); // RF
-                        gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
-                        vTaskDelay(pdMS_TO_TICKS(300));
-                        gpio_set_level(MOTOR_LF_GPIO, 0);
-                        gpio_set_level(MOTOR_LB_GPIO, 0);
-                        gpio_set_level(MOTOR_RF_GPIO, 0);
-                        gpio_set_level(MOTOR_RB_GPIO, 0);
-                        break;
-                    }
-                    case 2: { // 短促向后 (悲伤 / 哭)
-                        ESP_LOGI("Application", "电机动作: 短促向后 (cmd=2)");
-                        gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
-                        gpio_set_level(MOTOR_LB_GPIO, 1); // LB
-                        gpio_set_level(MOTOR_RF_GPIO, 0); // RF
-                        gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
-                        vTaskDelay(pdMS_TO_TICKS(300));
-                        gpio_set_level(MOTOR_LF_GPIO, 0);
-                        gpio_set_level(MOTOR_LB_GPIO, 0);
-                        gpio_set_level(MOTOR_RF_GPIO, 0);
-                        gpio_set_level(MOTOR_RB_GPIO, 0);
-                        break;
-                    }
-                    case 3: { // 左右快摆 (顽皮 / 笑)
-                        ESP_LOGI("Application", "电机动作: 左右快摆 (cmd=3)");
-                        for (int i = 0; i < 2; ++i) {
-                            // 左摆
-                            gpio_set_level(MOTOR_LF_GPIO, 0);
-                            gpio_set_level(MOTOR_LB_GPIO, 1);
-                            gpio_set_level(MOTOR_RF_GPIO, 1);
-                            gpio_set_level(MOTOR_RB_GPIO, 0);
-                            vTaskDelay(pdMS_TO_TICKS(150));
-                            // 右摆
-                            gpio_set_level(MOTOR_LF_GPIO, 1);
-                            gpio_set_level(MOTOR_LB_GPIO, 0);
-                            gpio_set_level(MOTOR_RF_GPIO, 0);
-                            gpio_set_level(MOTOR_RB_GPIO, 1);
-                            vTaskDelay(pdMS_TO_TICKS(150));
-                        }
-                        // 停止
-                        gpio_set_level(MOTOR_LF_GPIO, 0);
-                        gpio_set_level(MOTOR_LB_GPIO, 0);
-                        gpio_set_level(MOTOR_RF_GPIO, 0);
-                        gpio_set_level(MOTOR_RB_GPIO, 0);
-                        break;
-                    }
-                    case 4: { // 轻点/点头 (喜欢 / 自信 / 酷)
-                        ESP_LOGI("Application", "电机动作: 轻点/点头 (cmd=4)");
-                        // 前进短促 + 后退短促 表示点头式动作
-                        gpio_set_level(MOTOR_LF_GPIO, 1);
-                        gpio_set_level(MOTOR_RF_GPIO, 1);
-                        vTaskDelay(pdMS_TO_TICKS(180));
-                        gpio_set_level(MOTOR_LF_GPIO, 0);
-                        gpio_set_level(MOTOR_RF_GPIO, 0);
-                        vTaskDelay(pdMS_TO_TICKS(80));
-                        gpio_set_level(MOTOR_LB_GPIO, 1);
-                        gpio_set_level(MOTOR_RB_GPIO, 1);
-                        vTaskDelay(pdMS_TO_TICKS(150));
-                        gpio_set_level(MOTOR_LB_GPIO, 0);
-                        gpio_set_level(MOTOR_RB_GPIO, 0);
-                        break;
-                    }
-                    case 5: { // 轻微倾斜/停顿 (困惑 / 尴尬 / 思考)
-                        ESP_LOGI("Application", "电机动作: 轻微倾斜/停顿 (cmd=5)");
-                        // 小幅度一侧动作表示思考/困惑
-                        gpio_set_level(MOTOR_LF_GPIO, 1);
-                        gpio_set_level(MOTOR_LB_GPIO, 0);
-                        gpio_set_level(MOTOR_RF_GPIO, 0);
-                        gpio_set_level(MOTOR_RB_GPIO, 0);
-                        vTaskDelay(pdMS_TO_TICKS(200));
-                        gpio_set_level(MOTOR_LF_GPIO, 0);
-                        vTaskDelay(pdMS_TO_TICKS(100));
-                        break;
-                    }
-                    case 6: { // 突然/强烈动作 (惊讶 / 震惊 / 生气)
-                        ESP_LOGI("Application", "电机动作: 强烈动作 (cmd=6)");
-                        // 强烈前冲并快速旋转
-                        gpio_set_level(MOTOR_LF_GPIO, 1);
-                        gpio_set_level(MOTOR_RF_GPIO, 1);
-                        vTaskDelay(pdMS_TO_TICKS(350));
-                        // 快速右转
-                        gpio_set_level(MOTOR_LF_GPIO, 1);
-                        gpio_set_level(MOTOR_LB_GPIO, 0);
-                        gpio_set_level(MOTOR_RF_GPIO, 0);
-                        gpio_set_level(MOTOR_RB_GPIO, 1);
-                        vTaskDelay(pdMS_TO_TICKS(250));
-                        // 停止
-                        gpio_set_level(MOTOR_LF_GPIO, 0);
-                        gpio_set_level(MOTOR_LB_GPIO, 0);
-                        gpio_set_level(MOTOR_RF_GPIO, 0);
-                        gpio_set_level(MOTOR_RB_GPIO, 0);
-                        break;
-                    }
-                    default: { // 随机空闲动作（保持原有行为）
-                        ESP_LOGI("Application", "收到电机控制命令，正在执行简单电机动作 (随机)");
-
-                        // 30%概率执行动作，70%概率保持静止
-                        if (esp_random() % 100 < 30) {
-                            // 生成随机动作 (0-8)
-                            int random_action = esp_random() % 9;
-                            int random_duration = 200 + (esp_random() % 400); // 200-600ms，更长的动作时间
-
-                            // 简单的电机控制逻辑 (LF=8, LB=19, RF=20, RB=3)
-                            switch (random_action) {
-                                case 0: // STOP
-                                    gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
-                                    gpio_set_level(MOTOR_LB_GPIO, 0); // LB
-                                    gpio_set_level(MOTOR_RF_GPIO, 0); // RF
-                                    gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
-                                    ESP_LOGI("Application", "电机动作: 停止");
-                                    break;
-                                case 1: // FORWARD
-                                    gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
-                                    gpio_set_level(MOTOR_LB_GPIO, 0); // LB
-                                    gpio_set_level(MOTOR_RF_GPIO, 1); // RF
-                                    gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
-                                    vTaskDelay(pdMS_TO_TICKS(random_duration));
-                                    gpio_set_level(MOTOR_LF_GPIO, 0);
-                                    gpio_set_level(MOTOR_LB_GPIO, 0);
-                                    gpio_set_level(MOTOR_RF_GPIO, 0);
-                                    gpio_set_level(MOTOR_RB_GPIO, 0);
-                                    ESP_LOGI("Application", "电机动作: 前进 %dms", random_duration);
-                                    break;
-                                case 2: // BACKWARD
-                                    gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
-                                    gpio_set_level(MOTOR_LB_GPIO, 1); // LB
-                                    gpio_set_level(MOTOR_RF_GPIO, 0); // RF
-                                    gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
-                                    vTaskDelay(pdMS_TO_TICKS(random_duration));
-                                    gpio_set_level(MOTOR_LF_GPIO, 0);
-                                    gpio_set_level(MOTOR_LB_GPIO, 0);
-                                    gpio_set_level(MOTOR_RF_GPIO, 0);
-                                    gpio_set_level(MOTOR_RB_GPIO, 0);
-                                    ESP_LOGI("Application", "电机动作: 后退 %dms", random_duration);
-                                    break;
-                                case 3: // LEFT
-                                    gpio_set_level(MOTOR_LF_GPIO, 0);  // LF
-                                    gpio_set_level(MOTOR_LB_GPIO, 1); // LB
-                                    gpio_set_level(MOTOR_RF_GPIO, 1); // RF
-                                    gpio_set_level(MOTOR_RB_GPIO, 0);  // RB
-                                    vTaskDelay(pdMS_TO_TICKS(random_duration));
-                                    gpio_set_level(MOTOR_LF_GPIO, 0);
-                                    gpio_set_level(MOTOR_LB_GPIO, 0);
-                                    gpio_set_level(MOTOR_RF_GPIO, 0);
-                                    gpio_set_level(MOTOR_RB_GPIO, 0);
-                                    ESP_LOGI("Application", "电机动作: 左转 %dms", random_duration);
-                                    break;
-                                case 4: // RIGHT
-                                    gpio_set_level(MOTOR_LF_GPIO, 1);  // LF
-                                    gpio_set_level(MOTOR_LB_GPIO, 0); // LB
-                                    gpio_set_level(MOTOR_RF_GPIO, 0); // RF
-                                    gpio_set_level(MOTOR_RB_GPIO, 1);  // RB
-                                    vTaskDelay(pdMS_TO_TICKS(random_duration));
-                                    gpio_set_level(MOTOR_LF_GPIO, 0);
-                                    gpio_set_level(MOTOR_LB_GPIO, 0);
-                                    gpio_set_level(MOTOR_RF_GPIO, 0);
-                                    gpio_set_level(MOTOR_RB_GPIO, 0);
-                                    ESP_LOGI("Application", "电机动作: 右转 %dms", random_duration);
-                                    break;
-                                default:
-                                    // 其他动作保持停止状态
-                                    gpio_set_level(MOTOR_LF_GPIO, 0);
-                                    gpio_set_level(MOTOR_LB_GPIO, 0);
-                                    gpio_set_level(MOTOR_RF_GPIO, 0);
-                                    gpio_set_level(MOTOR_RB_GPIO, 0);
-                                    ESP_LOGI("Application", "电机动作: 停止 (默认)");
-                                    break;
-                            }
-
-                            ESP_LOGD("Application", "电机控制命令执行完成");
-                        } else {
-                            // 70%概率保持静止
-                            ESP_LOGD("Application", "电机保持静止 (70%概率)");
-                        }
-                        break;
-                    }
-                }
-            }
-        }
-
-        // Small delay to prevent busy waiting
-        vTaskDelay(pdMS_TO_TICKS(100));
-    }
-}
-
-void Application::TriggerMotorControl() {
-    int command = 0; // 0: idle random movement, 1: emotion action
-    if (motor_control_queue_ != nullptr) {
-        if (xQueueSend(motor_control_queue_, &command, 0) == pdTRUE) { // Non-blocking send
-            ESP_LOGD("Application", "电机控制命令已发送到队列");
-        } else {
-            ESP_LOGW("Application", "发送电机控制命令失败，队列已满");
-        }
-    } else {
-        ESP_LOGW("Application", "电机控制队列不可用");
-    }
-}
 
 void Application::TriggerMotorEmotion(int emotion_type) {
-    int command = emotion_type; // 1: wake, 2: speak, etc.
-    if (motor_control_queue_ != nullptr) {
-        if (xQueueSend(motor_control_queue_, &command, 0) == pdTRUE) { // Non-blocking send
-            ESP_LOGD("Application", "电机情感命令已发送到队列: %d", emotion_type);
+    // Use the global function to handle motor emotions
+    switch (emotion_type) {
+        case 1: // Wake up action
+            HandleMotorActionForEmotion("wake");
+            break;
+        case 2: // Speak action
+            HandleMotorActionForEmotion("speaking");
+            break;
+        default:
+            ESP_LOGW("Application", "未知的情感动作类型: %d", emotion_type);
+            break;
+    }
+}
+
+// Global function for motor control with duration (used by CompactWifiBoard)
+// Priority levels: 0=low (emotion), 1=medium (speech), 2=high (MCP commands)
+extern "C" void HandleMotorActionForApplication(int direction, int speed, int duration_ms, int priority) {
+    // Get Application instance and handle motor action
+    Application& app = Application::GetInstance();
+    app.HandleMotorActionWithDuration(direction, speed, duration_ms, priority);
+}
+
+void Application::HandleMotorActionWithDuration(int direction, int speed, int duration_ms, int priority) {
+    ESP_LOGI(TAG, "Motor action with duration: direction=%d, speed=%d, duration=%dms, priority=%d", direction, speed, duration_ms, priority);
+
+    // Check if there's already a motor action in progress
+    if (realtime_control_active_.load()) {
+        int current_priority = current_motor_priority_.load();
+        if (priority >= current_priority) {
+            ESP_LOGW(TAG, "Higher/equal priority motor action (new:%d >= current:%d), canceling previous action", priority, current_priority);
+            StopRealtimeMotorControl();
+            // Give a small delay for the previous action to stop
+            vTaskDelay(pdMS_TO_TICKS(50));
         } else {
-            ESP_LOGW("Application", "发送电机情感命令失败，队列已满");
+            ESP_LOGW(TAG, "Lower priority motor action (new:%d < current:%d), ignoring", priority, current_priority);
+            return; // Don't interrupt higher priority actions
+        }
+    }
+
+    // Set the current priority
+    current_motor_priority_.store(priority);
+
+    // Start the motor action
+    SetRealtimeMotorCommand(direction, speed);
+
+    // Schedule auto-stop after duration
+    if (duration_ms > 0) {
+        // Use a task to handle the delay and stop
+        auto stop_task = [](void* params) -> void {
+            auto* timing_params = static_cast<std::tuple<int, int, Application*>*>(params);
+            auto [duration, priority, app] = *timing_params;
+            delete timing_params;
+
+            vTaskDelay(pdMS_TO_TICKS(duration));
+            // Only stop if this action is still the current one
+            if (app->current_motor_priority_.load() == priority) {
+                app->StopRealtimeMotorControl();
+            }
+            vTaskDelete(NULL);
+        };
+
+        auto* params = new std::tuple<int, int, Application*>(duration_ms, priority, this);
+        xTaskCreate(stop_task, "motor_stop", 2048, params, tskIDLE_PRIORITY + 1, NULL);
+    }
+}
+
+void Application::HandleWebMotorControl(int direction, int speed) {
+    ESP_LOGI(TAG, "Web motor control: direction=%d, speed=%d", direction, speed);
+
+    // 将网页控制转换为电机命令
+    // direction: 0=停止, 1=右, 2=下(后退), 3=左, 4=上(前进)
+    // speed: 0-100
+
+    static int last_direction = 0;
+    static int last_speed = 0;
+
+    // 避免重复发送相同的命令
+    if (direction == last_direction && speed == last_speed) {
+        return;
+    }
+
+    last_direction = direction;
+    last_speed = speed;
+
+    // 如果速度为0或方向为0，停止实时控制并停止电机
+    if (speed == 0 || direction == 0) {
+        StopRealtimeMotorControl();
+        return;
+    }
+
+    // 根据方向和速度计算电机控制命令
+    // 我们使用现有的电机控制命令格式，但添加速度控制
+    // 直接实时控制电机（绕过队列）
+    SetRealtimeMotorCommand(direction, speed);
+}
+
+void Application::SetRealtimeMotorCommand(int direction, int speed) {
+    ESP_LOGI(TAG, "SetRealtimeMotorCommand: direction=%d speed=%d", direction, speed);
+
+    // 标记实时控制开启
+    realtime_control_active_.store(true);
+
+    // 更新时间戳（ms）
+    last_realtime_command_ms_.store(esp_timer_get_time() / 1000);
+
+    // 线程安全地初始化GPIO（仅第一次）
+    {
+        std::lock_guard<std::mutex> lock(motor_gpio_init_mutex_);
+        if (!motor_gpio_initialized_member_) {
+            gpio_config_t io_conf = {};
+            io_conf.intr_type = GPIO_INTR_DISABLE;
+            io_conf.mode = GPIO_MODE_OUTPUT;
+            io_conf.pin_bit_mask = (1ULL << MOTOR_LF_GPIO) | (1ULL << MOTOR_LB_GPIO) | (1ULL << MOTOR_RF_GPIO) | (1ULL << MOTOR_RB_GPIO);
+            io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
+            io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
+            if (gpio_config(&io_conf) == ESP_OK) {
+                motor_gpio_initialized_member_ = true;
+                ESP_LOGI(TAG, "实时控制: 电机GPIO初始化成功");
+            } else {
+                ESP_LOGE(TAG, "实时控制: 电机GPIO初始化失败");
+                return;
+            }
+        }
+    }
+
+    // 初始化并使用 PWM（LEDC）控制占空比以实现速度控制
+    if (!motor_pwm_initialized_member_) {
+        InitMotorPwm();
+    }
+
+    if (motor_pwm_initialized_member_) {
+        uint32_t max_duty = (1 << pwm_resolution_bits_) - 1;
+        uint32_t duty = (speed * max_duty) / 100;
+
+        // 使用 ledc fade 实现平滑过渡（模式 A：把目标通道设置为 PWM，其他通道为 0）
+        // 先把所有通道设为 0（平滑）
+        ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0, pwm_ramp_ms_);
+        ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, LEDC_FADE_NO_WAIT);
+        ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0, pwm_ramp_ms_);
+        ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, LEDC_FADE_NO_WAIT);
+        ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, 0, pwm_ramp_ms_);
+        ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, LEDC_FADE_NO_WAIT);
+        ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, 0, pwm_ramp_ms_);
+        ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, LEDC_FADE_NO_WAIT);
+
+        // 然后根据方向，把对应的通道设为目标占空比（平滑）
+        switch (direction) {
+            case 1: // 右: LF (ch0) + RB (ch3)
+                ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty, pwm_ramp_ms_);
+                ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, LEDC_FADE_NO_WAIT);
+                ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, duty, pwm_ramp_ms_);
+                ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, LEDC_FADE_NO_WAIT);
+                break;
+            case 2: // 后退: LB (ch1) + RB (ch3)
+                ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty, pwm_ramp_ms_);
+                ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, LEDC_FADE_NO_WAIT);
+                ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, duty, pwm_ramp_ms_);
+                ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, LEDC_FADE_NO_WAIT);
+                break;
+            case 3: // 左: LB (ch1) + RF (ch2)
+                ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, duty, pwm_ramp_ms_);
+                ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, LEDC_FADE_NO_WAIT);
+                ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, duty, pwm_ramp_ms_);
+                ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, LEDC_FADE_NO_WAIT);
+                break;
+            case 4: // 前进: LF (ch0) + RF (ch2)
+                ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, duty, pwm_ramp_ms_);
+                ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, LEDC_FADE_NO_WAIT);
+                ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, duty, pwm_ramp_ms_);
+                ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, LEDC_FADE_NO_WAIT);
+                break;
+            default:
+                break;
         }
     } else {
-        ESP_LOGW("Application", "电机控制队列不可用");
+        // 回退到 GPIO 控制（如果 PWM 未初始化）
+        if (motor_gpio_initialized_member_) {
+            gpio_set_level(MOTOR_LF_GPIO, 0);
+            gpio_set_level(MOTOR_LB_GPIO, 0);
+            gpio_set_level(MOTOR_RF_GPIO, 0);
+            gpio_set_level(MOTOR_RB_GPIO, 0);
+
+            switch (direction) {
+                case 1:
+                    gpio_set_level(MOTOR_LF_GPIO, 1);
+                    gpio_set_level(MOTOR_RB_GPIO, 1);
+                    break;
+                case 2:
+                    gpio_set_level(MOTOR_LB_GPIO, 1);
+                    gpio_set_level(MOTOR_RB_GPIO, 1);
+                    break;
+                case 3:
+                    gpio_set_level(MOTOR_LB_GPIO, 1);
+                    gpio_set_level(MOTOR_RF_GPIO, 1);
+                    break;
+                case 4:
+                    gpio_set_level(MOTOR_LF_GPIO, 1);
+                    gpio_set_level(MOTOR_RF_GPIO, 1);
+                    break;
+                default:
+                    break;
+            }
+        }
     }
+}
+
+void Application::StopRealtimeMotorControl() {
+    ESP_LOGI(TAG, "StopRealtimeMotorControl");
+    realtime_control_active_.store(false);
+    current_motor_priority_.store(0); // Reset priority
+    if (motor_pwm_initialized_member_) {
+        // 平滑降到 0
+        ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, 0, pwm_ramp_ms_);
+        ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, LEDC_FADE_NO_WAIT);
+        ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, 0, pwm_ramp_ms_);
+        ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_1, LEDC_FADE_NO_WAIT);
+        ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, 0, pwm_ramp_ms_);
+        ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_2, LEDC_FADE_NO_WAIT);
+        ledc_set_fade_with_time(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, 0, pwm_ramp_ms_);
+        ledc_fade_start(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_3, LEDC_FADE_NO_WAIT);
+    } else if (motor_gpio_initialized_member_) {
+        gpio_set_level(MOTOR_LF_GPIO, 0);
+        gpio_set_level(MOTOR_LB_GPIO, 0);
+        gpio_set_level(MOTOR_RF_GPIO, 0);
+        gpio_set_level(MOTOR_RB_GPIO, 0);
+    }
+    // Removed queue cleanup - now using unified PWM system
+    // 重置时间戳
+    last_realtime_command_ms_.store(0);
+}
+
+void Application::InitMotorPwm() {
+    if (motor_pwm_initialized_member_) return;
+
+    ledc_timer_config_t ledc_timer = {
+        .speed_mode = LEDC_LOW_SPEED_MODE,
+        .duty_resolution = (ledc_timer_bit_t)pwm_resolution_bits_,
+        .timer_num = LEDC_TIMER_0,
+        .freq_hz = (uint32_t)pwm_freq_hz_,
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+    if (ledc_timer_config(&ledc_timer) != ESP_OK) {
+        ESP_LOGE(TAG, "InitMotorPwm: ledc_timer_config failed");
+        return;
+    }
+
+    // Channel configs: ch0 -> MOTOR_LF_GPIO, ch1 -> MOTOR_LB_GPIO, ch2 -> MOTOR_RF_GPIO, ch3 -> MOTOR_RB_GPIO
+    // Configure each channel; zero-init struct to avoid uninitialized fields
+    ledc_channel_config_t ch = {};
+    ch.gpio_num = MOTOR_LF_GPIO;
+    ch.speed_mode = LEDC_LOW_SPEED_MODE;
+    ch.channel = LEDC_CHANNEL_0;
+    ch.timer_sel = LEDC_TIMER_0;
+    ch.duty = 0;
+    ch.hpoint = 0;
+    if (ledc_channel_config(&ch) != ESP_OK) {
+        ESP_LOGE(TAG, "InitMotorPwm: ledc_channel_config ch0 failed");
+    }
+
+    ch = {};
+    ch.gpio_num = MOTOR_LB_GPIO;
+    ch.speed_mode = LEDC_LOW_SPEED_MODE;
+    ch.channel = LEDC_CHANNEL_1;
+    ch.timer_sel = LEDC_TIMER_0;
+    ch.duty = 0;
+    ch.hpoint = 0;
+    if (ledc_channel_config(&ch) != ESP_OK) {
+        ESP_LOGE(TAG, "InitMotorPwm: ledc_channel_config ch1 failed");
+    }
+
+    ch = {};
+    ch.gpio_num = MOTOR_RF_GPIO;
+    ch.speed_mode = LEDC_LOW_SPEED_MODE;
+    ch.channel = LEDC_CHANNEL_2;
+    ch.timer_sel = LEDC_TIMER_0;
+    ch.duty = 0;
+    ch.hpoint = 0;
+    if (ledc_channel_config(&ch) != ESP_OK) {
+        ESP_LOGE(TAG, "InitMotorPwm: ledc_channel_config ch2 failed");
+    }
+
+    ch = {};
+    ch.gpio_num = MOTOR_RB_GPIO;
+    ch.speed_mode = LEDC_LOW_SPEED_MODE;
+    ch.channel = LEDC_CHANNEL_3;
+    ch.timer_sel = LEDC_TIMER_0;
+    ch.duty = 0;
+    ch.hpoint = 0;
+    if (ledc_channel_config(&ch) != ESP_OK) {
+        ESP_LOGE(TAG, "InitMotorPwm: ledc_channel_config ch3 failed");
+    }
+    // Install fade service for smooth transitions
+    if (ledc_fade_func_install(0) != ESP_OK) {
+        ESP_LOGW(TAG, "InitMotorPwm: ledc_fade_func_install failed or already installed");
+    }
+
+    motor_pwm_initialized_member_ = true;
+    ESP_LOGI(TAG, "InitMotorPwm: initialized (freq=%dHz, bits=%d, ramp=%dms)", pwm_freq_hz_, pwm_resolution_bits_, pwm_ramp_ms_);
 }
 
 // TriggerMotorEmotion 说明（中文）：

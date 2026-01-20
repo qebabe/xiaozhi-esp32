@@ -3,6 +3,8 @@
 #include <nvs.h>
 #include <nvs_flash.h>
 #include <driver/gpio.h>
+#include <driver/ledc.h>
+#include <driver/periph_ctrl.h>
 #include <esp_event.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
@@ -30,31 +32,16 @@
 
 extern "C" void app_main(void)
 {
-    // Initialize motor control GPIOs to LOW as early as possible to prevent motors from running on boot
-    // ESP32 GPIO_NUM_3 has special strapping behavior, so we need to be extra careful
-    gpio_config_t motor_io_conf = {};
-    motor_io_conf.intr_type = GPIO_INTR_DISABLE;
-    motor_io_conf.mode = GPIO_MODE_OUTPUT;
-    motor_io_conf.pin_bit_mask = (1ULL << MOTOR_LF_GPIO) | (1ULL << MOTOR_LB_GPIO) | (1ULL << MOTOR_RF_GPIO) | (1ULL << MOTOR_RB_GPIO);
-    motor_io_conf.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    motor_io_conf.pull_up_en = GPIO_PULLUP_DISABLE;
-    gpio_config(&motor_io_conf);
+    // Initialize LEDC for PWM motor control before any other components
+    // Enable LEDC peripheral
+    periph_module_enable(PERIPH_LEDC_MODULE);
 
-    // Force all motor pins to LOW by setting them multiple times
-    gpio_set_level(MOTOR_LF_GPIO, 0);
-    gpio_set_level(MOTOR_LB_GPIO, 0);
-    gpio_set_level(MOTOR_RF_GPIO, 0);
-    gpio_set_level(MOTOR_RB_GPIO, 0);
-
-    // Double-check by reading back the levels
-    int level_3 = gpio_get_level(MOTOR_RB_GPIO);
-    int level_8 = gpio_get_level(MOTOR_LF_GPIO);
-    int level_19 = gpio_get_level(MOTOR_LB_GPIO);
-    int level_20 = gpio_get_level(MOTOR_RF_GPIO);
-
-    ESP_LOGI(TAG, "电机GPIO初始化完成 - GPIO3:%d, GPIO8:%d, GPIO19:%d, GPIO20:%d", level_3, level_8, level_19, level_20);
-
-    ESP_LOGI(TAG, "电机GPIO已预初始化为低电平");
+    esp_err_t ledc_ret = ledc_fade_func_install(0);
+    if (ledc_ret != ESP_OK) {
+        ESP_LOGW(TAG, "Failed to install LEDC fade service: %s", esp_err_to_name(ledc_ret));
+    } else {
+        ESP_LOGI(TAG, "LEDC fade service initialized successfully");
+    }
 
     // Initialize NVS flash for WiFi configuration
     esp_err_t ret = nvs_flash_init();

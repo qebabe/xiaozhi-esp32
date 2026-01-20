@@ -16,6 +16,8 @@
 #include "audio_service.h"
 #include "device_state.h"
 #include "device_state_machine.h"
+#include <atomic>
+#include "web_server/web_server.h"
 
 // Main event bits
 #define MAIN_EVENT_SCHEDULE             (1 << 0)
@@ -127,6 +129,8 @@ public:
     void MotorControlTask();
     void TriggerMotorControl();
     void TriggerMotorEmotion(int emotion_type);
+    void HandleWebMotorControl(int direction, int speed);
+    void HandleMotorActionWithDuration(int direction, int speed, int duration_ms, int priority = 1);
     
     /**
      * Reset protocol resources (thread-safe)
@@ -160,8 +164,29 @@ private:
     TaskHandle_t activation_task_handle_ = nullptr;
 
     // Motor control task
-    QueueHandle_t motor_control_queue_ = nullptr;
-    TaskHandle_t motor_control_task_handle_ = nullptr;
+
+    // Web server for remote control
+    std::unique_ptr<WebServer> web_server_;
+
+    // Real-time motor control support
+    std::atomic<bool> realtime_control_active_{false};
+    std::atomic<int> current_motor_priority_{0}; // Current motor action priority
+    // Initialize motor gpio on demand in a thread-safe way
+    std::mutex motor_gpio_init_mutex_;
+    bool motor_gpio_initialized_member_ = false;
+
+    // API for realtime control (bypass queue)
+    void SetRealtimeMotorCommand(int direction, int speed);
+    void StopRealtimeMotorControl();
+    // Timestamp (ms) of last realtime command, used for watchdog to auto-stop
+    std::atomic<int64_t> last_realtime_command_ms_{0};
+    // PWM (LEDC) support
+    bool motor_pwm_initialized_member_ = false;
+    int pwm_freq_hz_ = 20000;
+    int pwm_resolution_bits_ = 10;
+    void InitMotorPwm();
+    // Ramp (ms) for PWM fade
+    int pwm_ramp_ms_ = 50;
 
 
     // Event handlers
