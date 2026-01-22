@@ -14,6 +14,7 @@
 
 // Forward declaration for Application function
 extern "C" void HandleMotorActionForApplication(int direction, int speed, int duration_ms, int priority);
+extern "C" void HandleMotorActionForEmotion(const char* emotion);
 
 
 
@@ -322,6 +323,95 @@ private:
                 return std::string("Motor stopped");
             });
 
+        // Animation actions
+        mcp_server.AddTool("self.motor.wake_up",
+            "Play wake up animation - excited movement to greet the user",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("wake");
+                return std::string("Wake up animation played");
+            });
+
+        mcp_server.AddTool("self.motor.happy",
+            "Play happy animation - playful movements to show joy",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("happy");
+                return std::string("Happy animation played");
+            });
+
+        mcp_server.AddTool("self.motor.sad",
+            "Play sad animation - slow backward movements to show sadness",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("sad");
+                return std::string("Sad animation played");
+            });
+
+        mcp_server.AddTool("self.motor.thinking",
+            "Play thinking animation - small left-right movements",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("thinking");
+                return std::string("Thinking animation played");
+            });
+
+        mcp_server.AddTool("self.motor.listening",
+            "Play listening animation - gentle swaying movements",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("listening");
+                return std::string("Listening animation played");
+            });
+
+        mcp_server.AddTool("self.motor.speaking",
+            "Play speaking animation - forward thrusts",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("speaking");
+                return std::string("Speaking animation played");
+            });
+
+        mcp_server.AddTool("self.motor.excited",
+            "Play excited animation - fast movements in multiple directions",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("excited");
+                return std::string("Excited animation played");
+            });
+
+        mcp_server.AddTool("self.motor.loving",
+            "Play loving animation - gentle forward movements",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("loving");
+                return std::string("Loving animation played");
+            });
+
+        mcp_server.AddTool("self.motor.angry",
+            "Play angry animation - strong backward and forward movements",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("angry");
+                return std::string("Angry animation played");
+            });
+
+        mcp_server.AddTool("self.motor.surprised",
+            "Play surprised animation - quick backward then forward movement",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("surprised");
+                return std::string("Surprised animation played");
+            });
+
+        mcp_server.AddTool("self.motor.confused",
+            "Play confused animation - hesitant left-right movements",
+            PropertyList(),
+            [](const PropertyList& properties) -> ReturnValue {
+                HandleMotorActionForEmotion("confused");
+                return std::string("Confused animation played");
+            });
+
         mcp_server.AddTool("self.network.get_ip",
             "获取当前WiFi IP地址信息，用于语音播报或状态查询",
             PropertyList(),
@@ -388,10 +478,43 @@ private:
         HandleMotorActionForApplication(1, speed_percent, 300, 2); // right turn, high priority
     }
 
+public:
     void MotorDance(uint8_t speed_percent = 100) {
-        // Simple dance - just a quick forward movement for MCP calls
-        // Complex sequences don't work well in synchronous MCP context
-        HandleMotorActionForApplication(4, speed_percent, 400, 2); // forward, high priority
+        ESP_LOGI(TAG, "电机跳舞: 执行完整的舞蹈序列 (速度: %d%%)", speed_percent);
+
+        // 舞蹈序列：前进 -> 左转 -> 右转 -> 后退 -> 前进 -> 左转 -> 右转 -> 结束
+        // 使用高优先级确保舞蹈动作不被其他动作打断
+
+        // 第一步：快速前进
+        HandleMotorActionForApplication(4, speed_percent, 300, 2); // forward
+        vTaskDelay(pdMS_TO_TICKS(350));
+
+        // 第二步：左转
+        HandleMotorActionForApplication(3, speed_percent, 250, 2); // left
+        vTaskDelay(pdMS_TO_TICKS(300));
+
+        // 第三步：右转
+        HandleMotorActionForApplication(1, speed_percent, 250, 2); // right
+        vTaskDelay(pdMS_TO_TICKS(300));
+
+        // 第四步：后退
+        HandleMotorActionForApplication(2, speed_percent, 300, 2); // backward
+        vTaskDelay(pdMS_TO_TICKS(350));
+
+        // 第五步：前进
+        HandleMotorActionForApplication(4, speed_percent, 200, 2); // forward
+        vTaskDelay(pdMS_TO_TICKS(250));
+
+        // 第六步：左转
+        HandleMotorActionForApplication(3, speed_percent, 200, 2); // left
+        vTaskDelay(pdMS_TO_TICKS(250));
+
+        // 第七步：右转
+        HandleMotorActionForApplication(1, speed_percent, 200, 2); // right
+        vTaskDelay(pdMS_TO_TICKS(250));
+
+        // 第八步：最终前进结束舞蹈
+        HandleMotorActionForApplication(4, speed_percent, 400, 2); // forward
     }
 
 public:
@@ -457,6 +580,45 @@ public:
         PerformMotorAction(1, 250); // FORWARD for 250ms - 前进表示说话
     }
 
+    void OnExcited() {
+        ESP_LOGI(TAG, "电机情感: 兴奋被触发 - 执行快速动作");
+        PerformMotorAction(1, 150); // FORWARD for 150ms - 快速前进
+        vTaskDelay(pdMS_TO_TICKS(50));
+        PerformMotorAction(3, 150); // LEFT for 150ms - 快速左转
+        vTaskDelay(pdMS_TO_TICKS(50));
+        PerformMotorAction(4, 150); // RIGHT for 150ms - 快速右转
+    }
+
+    void OnLoving() {
+        ESP_LOGI(TAG, "电机情感: 爱慕被触发 - 执行温柔动作");
+        PerformMotorAction(1, 300); // FORWARD for 300ms - 温柔前进
+        vTaskDelay(pdMS_TO_TICKS(200));
+        PerformMotorAction(3, 200); // LEFT for 200ms - 轻柔左转
+    }
+
+    void OnAngry() {
+        ESP_LOGI(TAG, "电机情感: 生气被触发 - 执行强烈动作");
+        PerformMotorAction(2, 200); // BACKWARD for 200ms - 后退表示生气
+        vTaskDelay(pdMS_TO_TICKS(100));
+        PerformMotorAction(1, 200); // FORWARD for 200ms - 前冲表示生气
+    }
+
+    void OnSurprised() {
+        ESP_LOGI(TAG, "电机情感: 惊讶被触发 - 执行突然动作");
+        PerformMotorAction(2, 100); // BACKWARD for 100ms - 快速后退
+        vTaskDelay(pdMS_TO_TICKS(150));
+        PerformMotorAction(1, 200); // FORWARD for 200ms - 前进表示惊讶
+    }
+
+    void OnConfused() {
+        ESP_LOGI(TAG, "电机情感: 困惑被触发 - 执行犹豫动作");
+        PerformMotorAction(3, 100); // LEFT for 100ms - 犹豫左转
+        vTaskDelay(pdMS_TO_TICKS(200));
+        PerformMotorAction(4, 100); // RIGHT for 100ms - 犹豫右转
+        vTaskDelay(pdMS_TO_TICKS(200));
+        PerformMotorAction(3, 100); // LEFT for 100ms - 再次犹豫
+    }
+
     void OnIdle() {
         if ((esp_random() % 100) < 50) { // 5% chance for random movement
             ESP_LOGI(TAG, "电机空闲: 随机动作被触发 (5%概率)");
@@ -497,16 +659,28 @@ extern "C" void HandleMotorActionForEmotion(const char* emotion) {
         std::string emotion_str(emotion);
         if (emotion_str == "happy" || emotion_str == "joy") {
             board->OnHappy();
+        } else if (emotion_str == "excited") {
+            board->OnExcited();
         } else if (emotion_str == "sad" || emotion_str == "unhappy") {
             board->OnSad();
-        } else if (emotion_str == "thinking" || emotion_str == "confused") {
+        } else if (emotion_str == "thinking") {
             board->OnThinking();
+        } else if (emotion_str == "confused") {
+            board->OnConfused();
         } else if (emotion_str == "listening" || emotion_str == "curious") {
             board->OnListening();
         } else if (emotion_str == "speaking" || emotion_str == "talking") {
             board->OnSpeaking();
-        } else if (emotion_str == "wake" || emotion_str == "wakeup" || emotion_str == "excited") {
+        } else if (emotion_str == "wake" || emotion_str == "wakeup") {
             board->OnWakeUp();
+        } else if (emotion_str == "loving") {
+            board->OnLoving();
+        } else if (emotion_str == "angry") {
+            board->OnAngry();
+        } else if (emotion_str == "surprised") {
+            board->OnSurprised();
+        } else {
+            ESP_LOGW(TAG, "Unknown emotion: %s", emotion_str.c_str());
         }
     }
 }
@@ -515,6 +689,12 @@ extern "C" void HandleMotorActionForEmotion(const char* emotion) {
 extern "C" void HandleMotorIdleAction(void) {
     auto board = static_cast<CompactWifiBoard*>(&Board::GetInstance());
     board->OnIdle();
+}
+
+// Global function for dance motor action
+extern "C" void HandleMotorActionForDance(uint8_t speed_percent) {
+    auto board = static_cast<CompactWifiBoard*>(&Board::GetInstance());
+    board->MotorDance(speed_percent);
 }
 
 DECLARE_BOARD(CompactWifiBoard);

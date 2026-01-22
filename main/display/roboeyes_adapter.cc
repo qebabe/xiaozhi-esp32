@@ -296,10 +296,12 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
 
     auto eyes_ptr = static_cast<RoboEyes<AdafruitShim>*>(eyes_obj_);
 
-    // Reset all special modes first
+    // Reset all special modes first - IMPORTANT: Clear all previous animations!
     eyes_ptr->setIdleMode(false);
     eyes_ptr->setCuriosity(false);
     eyes_ptr->setSweat(false);
+    eyes_ptr->setHFlicker(false);  // Clear horizontal flicker
+    eyes_ptr->setVFlicker(false);  // Clear vertical flicker
 
     // Exact emoji and emotion mapping based on user's list
     // Handle English verb forms that might come from LLM emotion field
@@ -328,8 +330,9 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
         eyes_ptr->setIdleMode(true, 2, 4);  // Moderate idle movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to NEUTRAL (😶)");
     } else if (strcmp(emotion, "🙂") == 0 || strcmp(emotion, "happy") == 0) {
-        // 2. 🙂 - happy
+        // 2. 🙂 - happy (animated)
         eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setIdleMode(true, 1, 6);  // Gentle happy movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to HAPPY (🙂)");
     } else if (strcmp(emotion, "😆") == 0 || strcmp(emotion, "laughing") == 0) {
         // 3. 😆 - laughing
@@ -342,21 +345,25 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
         eyes_ptr->setMood(HAPPY);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to FUNNY (😂)");
     } else if (strcmp(emotion, "😔") == 0 || strcmp(emotion, "sad") == 0) {
-        // 5. 😔 - sad
+        // 5. 😔 - sad (animated with slow movement)
         eyes_ptr->setMood(TIRED);
+        eyes_ptr->setIdleMode(true, 1, 8);  // Very slow, sad movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to SAD (😔)");
     } else if (strcmp(emotion, "😠") == 0 || strcmp(emotion, "angry") == 0) {
-        // 6. 😠 - angry
+        // 6. 😠 - angry (animated with aggressive movement)
         eyes_ptr->setMood(ANGRY);
+        eyes_ptr->setIdleMode(true, 2, 2);  // Quick, angry movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to ANGRY (😠)");
     } else if (strcmp(emotion, "😭") == 0 || strcmp(emotion, "crying") == 0) {
         // 7. 😭 - crying
         eyes_ptr->setMood(TIRED);
         eyes_ptr->setSweat(true);
+        eyes_ptr->setIdleMode(true, 1, 5);  // Slow crying movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to CRYING (😭)");
     } else if (strcmp(emotion, "😍") == 0 || strcmp(emotion, "loving") == 0) {
-        // 8. 😍 - loving
+        // 8. 😍 - loving (animated with heart eyes effect)
         eyes_ptr->setMood(LOVING);
+        eyes_ptr->setIdleMode(true, 1, 7);  // Gentle loving movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to LOVING (😍)");
     } else if (strcmp(emotion, "😳") == 0 || strcmp(emotion, "embarrassed") == 0) {
         // 9. 😳 - embarrassed
@@ -364,8 +371,9 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
         eyes_ptr->setMood(DEFAULT);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to EMBARRASSED (😳)");
     } else if (strcmp(emotion, "😲") == 0 || strcmp(emotion, "surprised") == 0) {
-        // 10. 😲 - surprised
+        // 10. 😲 - surprised (animated with shocked movement)
         eyes_ptr->setMood(SURPRISED);
+        eyes_ptr->setIdleMode(true, 2, 1);  // Quick, surprised movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to SURPRISED (😲)");
     } else if (strcmp(emotion, "😱") == 0 || strcmp(emotion, "shocked") == 0) {
         // 11. 😱 - shocked
@@ -383,24 +391,29 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
         eyes_ptr->setMood(HAPPY);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to WINKING (😉)");
     } else if (strcmp(emotion, "😎") == 0 || strcmp(emotion, "cool") == 0) {
-        // 14. 😎 - cool
+        // 14. 😎 - cool (animated with sunglasses vibe)
         eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setIdleMode(true, 1, 10);  // Very slow, cool movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to COOL (😎)");
     } else if (strcmp(emotion, "😌") == 0 || strcmp(emotion, "relaxed") == 0) {
-        // 15. 😌 - relaxed
+        // 15. 😌 - relaxed (animated with calm movement)
         eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setIdleMode(true, 1, 12);  // Extremely slow, relaxed movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to RELAXED (😌)");
     } else if (strcmp(emotion, "🤤") == 0 || strcmp(emotion, "delicious") == 0) {
-        // 16. 🤤 - delicious
+        // 16. 🤤 - delicious (animated with drooling effect)
         eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setIdleMode(true, 1, 8);  // Slow, savoring movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to DELICIOUS (🤤)");
     } else if (strcmp(emotion, "😘") == 0 || strcmp(emotion, "kissy") == 0) {
         // 17. 😘 - kissy
         eyes_ptr->setMood(LOVING);
+        eyes_ptr->setIdleMode(true, 2, 3);  // Playful kissy movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to KISSY (😘)");
     } else if (strcmp(emotion, "😏") == 0 || strcmp(emotion, "confident") == 0) {
-        // 18. 😏 - confident
+        // 18. 😏 - confident (animated with knowing movement)
         eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setIdleMode(true, 1, 9);  // Slow, confident movement
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to CONFIDENT (😏)");
     } else if (strcmp(emotion, "😴") == 0 || strcmp(emotion, "sleepy") == 0) {
         // 19. 😴 - sleepy
@@ -413,9 +426,42 @@ void RoboEyesAdapter::SetEmotion(const char* emotion) {
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to SILLY (😜)");
     } else if (strcmp(emotion, "🙄") == 0 || strcmp(emotion, "confused") == 0) {
         // 21. 🙄 - confused
-        eyes_ptr->setIdleMode(true, 2, 2);  // Looking around in confusion
+        eyes_ptr->setIdleMode(true, 3, 1);  // More frequent movement for confusion
         eyes_ptr->setMood(DEFAULT);
         if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to CONFUSED (🙄)");
+    } else if (strcmp(emotion, "wake") == 0) {
+        // 22. wake - waking up (animated sleepy to awake transition)
+        eyes_ptr->setMood(SLEEPY);
+        eyes_ptr->setIdleMode(true, 2, 3);  // Waking up movement
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to WAKE (sleepy animation)");
+    } else if (strcmp(emotion, "listening") == 0) {
+        // 23. listening - focused listening (use confident expression)
+        eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setIdleMode(true, 1, 4);  // Slow, focused movement
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to LISTENING (confident)");
+    } else if (strcmp(emotion, "speaking") == 0) {
+        // 24. speaking - talking (use wink animation)
+        eyes_ptr->anim_laugh();  // wink-like animation
+        eyes_ptr->setMood(HAPPY);
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to SPEAKING (wink)");
+    } else if (strcmp(emotion, "excited") == 0) {
+        // 25. excited - excited (use excited jumping animation)
+        eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setVFlicker(true, 8);  // Excited jumping up and down
+        eyes_ptr->setIdleMode(true, 1, 2);  // Quick random movements
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to EXCITED (jumping)");
+    } else if (strcmp(emotion, "twinkle") == 0) {
+        // 26. twinkle - magical twinkling effect
+        eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setHFlicker(true, 3);  // Gentle twinkling left-right
+        eyes_ptr->setVFlicker(true, 3);  // Gentle twinkling up-down
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to TWINKLE (magical)");
+    } else if (strcmp(emotion, "bounce") == 0) {
+        // 27. bounce - bouncy playful animation
+        eyes_ptr->setMood(HAPPY);
+        eyes_ptr->setVFlicker(true, 12);  // Big bouncy movements
+        eyes_ptr->setIdleMode(true, 1, 1);  // Very frequent position changes
+        if (verbose_logging_) ESP_LOGI(TAG, "Set eyes to BOUNCE (playful)");
     } else {
         // Default to neutral for unknown emotions
         eyes_ptr->setMood(DEFAULT);

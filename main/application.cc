@@ -54,11 +54,23 @@ extern "C" void HandleMotorActionForEmotion(const char* emotion) __attribute__((
 extern "C" void (*HandleMotorActionForEmotionPtr)(const char* emotion) __attribute__((weak));
 extern "C" void (*HandleMotorIdleActionPtr)(void) __attribute__((weak));
 
+// Motor action queue for sequential execution
+#include <queue>
+#include <mutex>
+struct MotorAction {
+    int direction;
+    int speed;
+    int duration_ms;
+    std::string description;
+};
+
+static std::queue<MotorAction> motor_action_queue_;
+static std::mutex motor_queue_mutex_;
+static volatile bool motor_executor_running_ = false;
+
 // Motor control task (deprecated - now using global functions)
 
 // Motor action flags for state-based actions
-static volatile bool motor_action_pending_ = false;
-static volatile int motor_action_type_ = 0; // 0: none, 1: wake, 2: speak
 
 
 Application::Application() {
@@ -70,6 +82,9 @@ Application::Application() {
 
     // 初始化Web服务器
     web_server_ = std::make_unique<WebServer>();
+
+    // 加载电机动作配置
+    LoadMotorActionConfig();
 
 #if CONFIG_USE_DEVICE_AEC && CONFIG_USE_SERVER_AEC
 #error "CONFIG_USE_DEVICE_AEC and CONFIG_USE_SERVER_AEC cannot be enabled at the same time"
@@ -351,42 +366,7 @@ void Application::Run() {
             // Trigger motor control every 30 seconds to reduce frequency
             // Removed old motor control task trigger - now using unified PWM system
 
-            // Handle motor actions for device state changes (wake up, listening, speaking)
-            static DeviceState last_state = kDeviceStateUnknown;
-            DeviceState current_state = GetDeviceState();
-
-            if (current_state != last_state) {
-                // Set motor action flags instead of calling functions directly
-                switch (current_state) {
-                    case kDeviceStateListening:
-                        ESP_LOGI("Application", "设备状态变化: 唤醒 - 标记电机动作");
-                        motor_action_pending_ = true;
-                        motor_action_type_ = 1; // wake action
-                        break;
-                    case kDeviceStateSpeaking:
-                        ESP_LOGI("Application", "设备状态变化: 说话 - 标记电机动作");
-                        motor_action_pending_ = true;
-                        motor_action_type_ = 2; // speak action
-                        break;
-                    default:
-                        break;
-                }
-
-                last_state = current_state;
-            }
-
-            // Execute pending motor actions - now using unified PWM system
-            if (motor_action_pending_) {
-                if (motor_action_type_ == 1) {
-                    ESP_LOGI("Application", "执行唤醒电机动作");
-                    TriggerMotorEmotion(1); // Wake action
-                } else if (motor_action_type_ == 2) {
-                    ESP_LOGI("Application", "执行说话电机动作");
-                    TriggerMotorEmotion(2); // Speak action
-                }
-                motor_action_pending_ = false;
-                motor_action_type_ = 0;
-            }
+            // Motor feedback is now handled in HandleStateChangedEvent() to avoid duplication
             // Print debug info every 10 seconds
             if (clock_ticks_ % 10 == 0) {
                 SystemInfo::PrintHeapStats();
@@ -458,6 +438,45 @@ void Application::HandleActivationDoneEvent() {
     web_server_->SetMotorControlCallback([this](int direction, int speed) {
         HandleWebMotorControl(direction, speed);
     });
+
+    // Set emotion callback for web interface
+    web_server_->SetEmotionCallback([](const char* emotion) {
+        auto display = Board::GetInstance().GetDisplay();
+        display->SetEmotion(emotion);
+    });
+
+    // Set motor action config callbacks for web interface
+    web_server_->SetMotorActionConfigCallback(
+        [this]() -> WebServer::MotorActionConfig {
+            const auto& config = GetMotorActionConfig();
+            WebServer::MotorActionConfig ws_config;
+            ws_config.forward_duration_ms = config.forward_duration_ms;
+            ws_config.backward_duration_ms = config.backward_duration_ms;
+            ws_config.left_turn_duration_ms = config.left_turn_duration_ms;
+            ws_config.right_turn_duration_ms = config.right_turn_duration_ms;
+            ws_config.spin_duration_ms = config.spin_duration_ms;
+            ws_config.wiggle_duration_ms = config.wiggle_duration_ms;
+            ws_config.dance_duration_ms = config.dance_duration_ms;
+            ws_config.quick_forward_duration_ms = config.quick_forward_duration_ms;
+            ws_config.quick_backward_duration_ms = config.quick_backward_duration_ms;
+            ws_config.default_speed_percent = config.default_speed_percent;
+            return ws_config;
+        },
+        [this](const WebServer::MotorActionConfig& ws_config) {
+            MotorActionConfig config;
+            config.forward_duration_ms = ws_config.forward_duration_ms;
+            config.backward_duration_ms = ws_config.backward_duration_ms;
+            config.left_turn_duration_ms = ws_config.left_turn_duration_ms;
+            config.right_turn_duration_ms = ws_config.right_turn_duration_ms;
+            config.spin_duration_ms = ws_config.spin_duration_ms;
+            config.wiggle_duration_ms = ws_config.wiggle_duration_ms;
+            config.dance_duration_ms = ws_config.dance_duration_ms;
+            config.quick_forward_duration_ms = ws_config.quick_forward_duration_ms;
+            config.quick_backward_duration_ms = ws_config.quick_backward_duration_ms;
+            config.default_speed_percent = ws_config.default_speed_percent;
+            SetMotorActionConfig(config);
+        }
+    );
 
     if (web_server_->Start(80)) {
         ESP_LOGI(TAG, "Web server started successfully on port 80");
@@ -1111,8 +1130,36 @@ void Application::HandleWakeWordDetectedEvent() {
 }
 
 void Application::HandleStateChangedEvent() {
+    static DeviceState last_state_for_motor = kDeviceStateUnknown;
     DeviceState new_state = state_machine_.GetState();
     clock_ticks_ = 0;
+
+    // Handle motor feedback for state changes (immediate execution)
+    if (new_state != last_state_for_motor) {
+        switch (new_state) {
+            case kDeviceStateListening:
+                ESP_LOGI("Application", "状态变化事件: 唤醒 - 加入平衡电机反馈队列");
+                // Queue wake balance feedback actions
+                this->QueueMotorAction(4, 40, 200, "Wake forward");
+                this->QueueMotorAction(2, 40, 200, "Wake backward");
+                break;
+            case kDeviceStateSpeaking:
+                ESP_LOGI("Application", "状态变化事件: 开始说话 - 加入电机反馈队列");
+                this->QueueMotorAction(4, 50, 250, "Start speaking forward");
+                break;
+            default:
+                // No motor feedback for other state changes
+                break;
+        }
+
+        // Handle transition FROM speaking
+        if (last_state_for_motor == kDeviceStateSpeaking && new_state != kDeviceStateSpeaking) {
+            ESP_LOGI("Application", "状态变化事件: 说话结束 - 加入电机反馈队列");
+            this->QueueMotorAction(2, 45, 220, "End speaking backward");
+        }
+
+        last_state_for_motor = new_state;
+    }
 
     auto& board = Board::GetInstance();
     auto display = board.GetDisplay();
@@ -1413,13 +1460,51 @@ void Application::ResetProtocol() {
 
 
 void Application::TriggerMotorEmotion(int emotion_type) {
-    // Use the global function to handle motor emotions
+    // Use the queue system for all motor actions to ensure they all execute
     switch (emotion_type) {
-        case 1: // Wake up action
-            HandleMotorActionForEmotion("wake");
+        case 1: // 非常短暂的向前（唤醒反馈）
+            QueueMotorAction(4, motor_action_config_.default_speed_percent,
+                           200, "Emotion forward twitch");
             break;
-        case 2: // Speak action
-            HandleMotorActionForEmotion("speaking");
+        case 2: // 非常短暂的向后（说话反馈）
+            QueueMotorAction(2, motor_action_config_.default_speed_percent,
+                           150, "Emotion backward twitch");
+            break;
+        case 3: // 左右快摆（顽皮 / 笑 / 眨眼）
+            // Quick left-right wiggle
+            QueueMotorAction(3, motor_action_config_.default_speed_percent,
+                           motor_action_config_.wiggle_duration_ms / 6, "Emotion left wiggle");
+            QueueMotorAction(1, motor_action_config_.default_speed_percent,
+                           motor_action_config_.wiggle_duration_ms / 6, "Emotion right wiggle");
+            break;
+        case 4: // 轻点/点头（喜欢 / 自信）
+            QueueMotorAction(4, motor_action_config_.default_speed_percent,
+                           motor_action_config_.forward_duration_ms / 6, "Emotion nod forward");
+            break;
+        case 5: // 轻微倾斜/停顿（困惑 / 尴尬 / 思考）
+            QueueMotorAction(3, motor_action_config_.default_speed_percent / 2,
+                           motor_action_config_.left_turn_duration_ms / 4, "Emotion confused left");
+            QueueMotorAction(1, motor_action_config_.default_speed_percent / 2,
+                           motor_action_config_.right_turn_duration_ms / 4, "Emotion confused right");
+            break;
+        case 6: // 突然/强烈动作（惊讶 / 震惊 / 生气）
+            QueueMotorAction(2, motor_action_config_.default_speed_percent,
+                           motor_action_config_.backward_duration_ms / 6, "Emotion shocked back");
+            QueueMotorAction(4, motor_action_config_.default_speed_percent,
+                           motor_action_config_.forward_duration_ms / 6, "Emotion shocked forward");
+            break;
+        case 7: // 唤醒反馈：前进后退平衡（最高优先级）
+            ESP_LOGI("Application", "唤醒电机反馈：前进后退平衡");
+            QueueMotorAction(4, 40, 200, "Wake balance forward");
+            QueueMotorAction(2, 40, 200, "Wake balance backward");
+            break;
+        case 8: // 开始说话反馈：向前（最高优先级）
+            ESP_LOGI("Application", "开始说话电机反馈");
+            QueueMotorAction(4, 50, 250, "Start speaking forward");
+            break;
+        case 9: // 结束说话反馈：向后（最高优先级）
+            ESP_LOGI("Application", "结束说话电机反馈");
+            QueueMotorAction(2, 45, 220, "End speaking backward");
             break;
         default:
             ESP_LOGW("Application", "未知的情感动作类型: %d", emotion_type);
@@ -1435,6 +1520,62 @@ extern "C" void HandleMotorActionForApplication(int direction, int speed, int du
     app.HandleMotorActionWithDuration(direction, speed, duration_ms, priority);
 }
 
+void Application::QueueMotorAction(int direction, int speed, int duration_ms, const std::string& description) {
+    ESP_LOGI(TAG, "Queue motor action: %s (direction=%d, speed=%d, duration=%dms)",
+             description.c_str(), direction, speed, duration_ms);
+
+    // Add action to queue
+    {
+        std::lock_guard<std::mutex> lock(motor_queue_mutex_);
+        motor_action_queue_.push({direction, speed, duration_ms, description});
+    }
+
+    // Start executor if not running
+    if (!motor_executor_running_) {
+        motor_executor_running_ = true;
+        xTaskCreate([](void* param) {
+            Application* app = static_cast<Application*>(param);
+            app->ExecuteMotorActionQueue();
+        }, "motor_executor", 4096, this, tskIDLE_PRIORITY + 1, NULL);
+    }
+}
+
+void Application::ExecuteMotorActionQueue() {
+    ESP_LOGI(TAG, "Motor action queue executor started");
+
+    while (true) {
+        MotorAction action;
+        bool has_action = false;
+
+        // Get next action from queue
+        {
+            std::lock_guard<std::mutex> lock(motor_queue_mutex_);
+            if (!motor_action_queue_.empty()) {
+                action = motor_action_queue_.front();
+                motor_action_queue_.pop();
+                has_action = true;
+            }
+        }
+
+        if (has_action) {
+            ESP_LOGI(TAG, "Executing queued motor action: %s", action.description.c_str());
+
+            // Execute the action synchronously
+            SetRealtimeMotorCommand(action.direction, action.speed);
+            if (action.duration_ms > 0) {
+                vTaskDelay(pdMS_TO_TICKS(action.duration_ms));
+            }
+            StopRealtimeMotorControl();
+
+            // Small delay between actions
+            vTaskDelay(pdMS_TO_TICKS(50));
+        } else {
+            // No more actions, check again after a short delay
+            vTaskDelay(pdMS_TO_TICKS(10));
+        }
+    }
+}
+
 void Application::HandleMotorActionWithDuration(int direction, int speed, int duration_ms, int priority) {
     ESP_LOGI(TAG, "Motor action with duration: direction=%d, speed=%d, duration=%dms, priority=%d", direction, speed, duration_ms, priority);
 
@@ -1447,8 +1588,13 @@ void Application::HandleMotorActionWithDuration(int direction, int speed, int du
             // Give a small delay for the previous action to stop
             vTaskDelay(pdMS_TO_TICKS(50));
         } else {
-            ESP_LOGW(TAG, "Lower priority motor action (new:%d < current:%d), ignoring", priority, current_priority);
-            return; // Don't interrupt higher priority actions
+            ESP_LOGW(TAG, "Lower priority motor action (new:%d < current:%d), queuing instead", priority, current_priority);
+            // Queue the action to ensure it gets executed eventually
+            std::string desc = "Queued action (dir=" + std::to_string(direction) +
+                             ", speed=" + std::to_string(speed) +
+                             ", duration=" + std::to_string(duration_ms) + "ms, pri=" + std::to_string(priority) + ")";
+            QueueMotorAction(direction, speed, duration_ms, desc);
+            return;
         }
     }
 
@@ -1467,10 +1613,9 @@ void Application::HandleMotorActionWithDuration(int direction, int speed, int du
             delete timing_params;
 
             vTaskDelay(pdMS_TO_TICKS(duration));
-            // Only stop if this action is still the current one
-            if (app->current_motor_priority_.load() == priority) {
-                app->StopRealtimeMotorControl();
-            }
+            // Stop the motor control after the specified duration
+            // This is a simple approach: just stop whatever is running
+            app->StopRealtimeMotorControl();
             vTaskDelete(NULL);
         };
 
@@ -1647,13 +1792,12 @@ void Application::StopRealtimeMotorControl() {
 void Application::InitMotorPwm() {
     if (motor_pwm_initialized_member_) return;
 
-    ledc_timer_config_t ledc_timer = {
-        .speed_mode = LEDC_LOW_SPEED_MODE,
-        .duty_resolution = (ledc_timer_bit_t)pwm_resolution_bits_,
-        .timer_num = LEDC_TIMER_0,
-        .freq_hz = (uint32_t)pwm_freq_hz_,
-        .clk_cfg = LEDC_AUTO_CLK
-    };
+    ledc_timer_config_t ledc_timer = {};
+    ledc_timer.speed_mode = LEDC_LOW_SPEED_MODE;
+    ledc_timer.duty_resolution = (ledc_timer_bit_t)pwm_resolution_bits_;
+    ledc_timer.timer_num = LEDC_TIMER_0;
+    ledc_timer.freq_hz = (uint32_t)pwm_freq_hz_;
+    ledc_timer.clk_cfg = LEDC_AUTO_CLK;
     if (ledc_timer_config(&ledc_timer) != ESP_OK) {
         ESP_LOGE(TAG, "InitMotorPwm: ledc_timer_config failed");
         return;
@@ -1716,3 +1860,62 @@ void Application::InitMotorPwm() {
 // TriggerMotorEmotion 说明（中文）：
 // 该函数将情感命令放入 motor_control_queue_，由 MotorControlTask 异步执行。
 // 通过队列方式可以保证所有电机动作在同一任务中串行执行，避免并发冲突和阻塞主线程。
+
+void Application::LoadMotorActionConfig() {
+    Settings settings("motor_config", true);
+
+    motor_action_config_.forward_duration_ms = settings.GetInt("forward_ms", 5000);
+    motor_action_config_.backward_duration_ms = settings.GetInt("backward_ms", 5000);
+    motor_action_config_.left_turn_duration_ms = settings.GetInt("left_turn_ms", 600);
+    motor_action_config_.right_turn_duration_ms = settings.GetInt("right_turn_ms", 600);
+    motor_action_config_.spin_duration_ms = settings.GetInt("spin_ms", 2500);
+    motor_action_config_.wiggle_duration_ms = settings.GetInt("wiggle_ms", 600);
+    motor_action_config_.dance_duration_ms = settings.GetInt("dance_ms", 1500);
+    motor_action_config_.quick_forward_duration_ms = settings.GetInt("quick_fwd_ms", 5000);
+    motor_action_config_.quick_backward_duration_ms = settings.GetInt("quick_bwd_ms", 5000);
+    motor_action_config_.default_speed_percent = settings.GetInt("def_speed_pct", 100);
+
+    ESP_LOGI(TAG, "加载电机动作配置:");
+    ESP_LOGI(TAG, "  前进时间: %d ms", motor_action_config_.forward_duration_ms);
+    ESP_LOGI(TAG, "  后退时间: %d ms", motor_action_config_.backward_duration_ms);
+    ESP_LOGI(TAG, "  左转时间: %d ms", motor_action_config_.left_turn_duration_ms);
+    ESP_LOGI(TAG, "  右转时间: %d ms", motor_action_config_.right_turn_duration_ms);
+    ESP_LOGI(TAG, "  转圈时间: %d ms", motor_action_config_.spin_duration_ms);
+    ESP_LOGI(TAG, "  摆动时间: %d ms", motor_action_config_.wiggle_duration_ms);
+    ESP_LOGI(TAG, "  跳舞时间: %d ms", motor_action_config_.dance_duration_ms);
+    ESP_LOGI(TAG, "  快速前进时间: %d ms", motor_action_config_.quick_forward_duration_ms);
+    ESP_LOGI(TAG, "  快速后退时间: %d ms", motor_action_config_.quick_backward_duration_ms);
+    ESP_LOGI(TAG, "  默认速度: %d%%", motor_action_config_.default_speed_percent);
+}
+
+void Application::SaveMotorActionConfig() {
+    Settings settings("motor_config", true);
+
+    settings.SetInt("forward_ms", motor_action_config_.forward_duration_ms);
+    settings.SetInt("backward_ms", motor_action_config_.backward_duration_ms);
+    settings.SetInt("left_turn_ms", motor_action_config_.left_turn_duration_ms);
+    settings.SetInt("right_turn_ms", motor_action_config_.right_turn_duration_ms);
+    settings.SetInt("spin_ms", motor_action_config_.spin_duration_ms);
+    settings.SetInt("wiggle_ms", motor_action_config_.wiggle_duration_ms);
+    settings.SetInt("dance_ms", motor_action_config_.dance_duration_ms);
+    settings.SetInt("quick_fwd_ms", motor_action_config_.quick_forward_duration_ms);
+    settings.SetInt("quick_bwd_ms", motor_action_config_.quick_backward_duration_ms);
+    settings.SetInt("def_speed_pct", motor_action_config_.default_speed_percent);
+
+    ESP_LOGI(TAG, "保存电机动作配置:");
+    ESP_LOGI(TAG, "  前进时间: %d ms", motor_action_config_.forward_duration_ms);
+    ESP_LOGI(TAG, "  后退时间: %d ms", motor_action_config_.backward_duration_ms);
+    ESP_LOGI(TAG, "  左转时间: %d ms", motor_action_config_.left_turn_duration_ms);
+    ESP_LOGI(TAG, "  右转时间: %d ms", motor_action_config_.right_turn_duration_ms);
+    ESP_LOGI(TAG, "  转圈时间: %d ms", motor_action_config_.spin_duration_ms);
+    ESP_LOGI(TAG, "  摆动时间: %d ms", motor_action_config_.wiggle_duration_ms);
+    ESP_LOGI(TAG, "  跳舞时间: %d ms", motor_action_config_.dance_duration_ms);
+    ESP_LOGI(TAG, "  快速前进时间: %d ms", motor_action_config_.quick_forward_duration_ms);
+    ESP_LOGI(TAG, "  快速后退时间: %d ms", motor_action_config_.quick_backward_duration_ms);
+    ESP_LOGI(TAG, "  默认速度: %d%%", motor_action_config_.default_speed_percent);
+}
+
+void Application::SetMotorActionConfig(const MotorActionConfig& config) {
+    motor_action_config_ = config;
+    SaveMotorActionConfig();
+}

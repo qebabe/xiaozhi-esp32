@@ -125,13 +125,34 @@ public:
     void PlaySound(const std::string_view& sound);
     AudioService& GetAudioService() { return audio_service_; }
 
+    // Motor action configuration
+    struct MotorActionConfig {
+        int forward_duration_ms = 5000;
+        int backward_duration_ms = 5000;
+        int left_turn_duration_ms = 600;
+        int right_turn_duration_ms = 600;
+        int spin_duration_ms = 2500;
+        int wiggle_duration_ms = 600;
+        int dance_duration_ms = 1500;
+        int quick_forward_duration_ms = 5000;
+        int quick_backward_duration_ms = 5000;
+        int default_speed_percent = 100;
+    };
+
+    void LoadMotorActionConfig();
+    void SaveMotorActionConfig();
+    const MotorActionConfig& GetMotorActionConfig() const { return motor_action_config_; }
+    void SetMotorActionConfig(const MotorActionConfig& config);
+
     // Motor control
     void MotorControlTask();
     void TriggerMotorControl();
     void TriggerMotorEmotion(int emotion_type);
     void HandleWebMotorControl(int direction, int speed);
     void HandleMotorActionWithDuration(int direction, int speed, int duration_ms, int priority = 1);
-    
+    void QueueMotorAction(int direction, int speed, int duration_ms, const std::string& description);
+    void ExecuteMotorActionQueue();
+
     /**
      * Reset protocol resources (thread-safe)
      * Can be called from any task to release resources allocated after network connected
@@ -167,6 +188,9 @@ private:
 
     // Web server for remote control
     std::unique_ptr<WebServer> web_server_;
+
+    // Motor action configuration
+    MotorActionConfig motor_action_config_;
 
     // Real-time motor control support
     std::atomic<bool> realtime_control_active_{false};

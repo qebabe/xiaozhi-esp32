@@ -10,6 +10,20 @@
 
 #define MOTOR_LOG_TAG "MotorController"
 
+// Motor action configuration structure
+struct MotorActionConfig {
+    int forward_duration_ms = 5000;
+    int backward_duration_ms = 5000;
+    int left_turn_duration_ms = 600;
+    int right_turn_duration_ms = 600;
+    int spin_duration_ms = 2500;
+    int wiggle_duration_ms = 600;
+    int dance_duration_ms = 1500;
+    int quick_forward_duration_ms = 5000;
+    int quick_backward_duration_ms = 5000;
+    int default_speed_percent = 100;
+};
+
 // Motor control actions
 #define MOTOR_STOP       0
 #define MOTOR_BACKWARD   1
@@ -32,6 +46,9 @@ private:
     bool pwm_initialized_;
     ledc_timer_config_t pwm_timer_config_;
     ledc_channel_config_t pwm_channel_configs_[4]; // LF, LB, RF, RB
+
+    // Configuration
+    MotorActionConfig config_;
 
     void SetMotorPins(bool lf, bool lb, bool rf, bool rb) {
         gpio_set_level(lf_pin_, lf);
@@ -103,12 +120,17 @@ private:
     }
 
 public:
-    MotorController(gpio_num_t lf_pin, gpio_num_t lb_pin, gpio_num_t rf_pin, gpio_num_t rb_pin)
-        : lf_pin_(lf_pin), lb_pin_(lb_pin), rf_pin_(rf_pin), rb_pin_(rb_pin), pwm_initialized_(false) {
+    MotorController(gpio_num_t lf_pin, gpio_num_t lb_pin, gpio_num_t rf_pin, gpio_num_t rb_pin, const MotorActionConfig& config = {})
+        : lf_pin_(lf_pin), lb_pin_(lb_pin), rf_pin_(rf_pin), rb_pin_(rb_pin), pwm_initialized_(false), config_(config) {
 
         // Don't initialize PWM automatically - let Application handle it
         // Initialize all motors to LOW (stop) using GPIO for now
         Stop();
+    }
+
+    // Update configuration
+    void SetConfig(const MotorActionConfig& config) {
+        config_ = config;
     }
 
     // Public method to initialize PWM (called by Application after LEDC is ready)
@@ -389,63 +411,80 @@ public:
     }
 
     // Specific movement actions as requested
-    void MoveForward(int duration_ms = 5000, uint8_t speed_percent = 100) {
+    void MoveForward(uint8_t speed_percent = 0) {
+        int duration_ms = config_.forward_duration_ms;
+        if (speed_percent == 0) speed_percent = config_.default_speed_percent;
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 前进 - 向前走%d毫秒, 速度%d%%", duration_ms, speed_percent);
         ExecuteAction(MOTOR_FORWARD, duration_ms, 0, 1, speed_percent);
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 前进完成");
     }
 
-    void MoveBackward(int duration_ms = 5000, uint8_t speed_percent = 100) {
+    void MoveBackward(uint8_t speed_percent = 0) {
+        int duration_ms = config_.backward_duration_ms;
+        if (speed_percent == 0) speed_percent = config_.default_speed_percent;
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 后退 - 向后走%d毫秒, 速度%d%%", duration_ms, speed_percent);
         ExecuteAction(MOTOR_BACKWARD, duration_ms, 0, 1, speed_percent);
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 后退完成");
     }
 
-    void SpinAround(uint8_t speed_percent = 100) {
-        ESP_LOGI(MOTOR_LOG_TAG, "动作: 转圈 - 旋转一圈, 速度%d%%", speed_percent);
-        // Assuming full rotation takes about 3 seconds at current speed
-        ExecuteAction(MOTOR_FULL_LEFT, 2500, 0, 1, speed_percent);
+    void SpinAround(uint8_t speed_percent = 0) {
+        int duration_ms = config_.spin_duration_ms;
+        if (speed_percent == 0) speed_percent = config_.default_speed_percent;
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 转圈 - 旋转%d毫秒, 速度%d%%", duration_ms, speed_percent);
+        ExecuteAction(MOTOR_FULL_LEFT, duration_ms, 0, 1, speed_percent);
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 转圈完成");
     }
 
-    void TurnLeftDuration(int duration_ms = 600, uint8_t speed_percent = 100) {
+    void TurnLeftDuration(uint8_t speed_percent = 0) {
+        int duration_ms = config_.left_turn_duration_ms;
+        if (speed_percent == 0) speed_percent = config_.default_speed_percent;
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 左转 - 向左转%d毫秒, 速度%d%%", duration_ms, speed_percent);
         ExecuteAction(MOTOR_FULL_LEFT, duration_ms, 0, 1, speed_percent);
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 左转完成");
     }
 
-    void TurnRightDuration(int duration_ms = 600, uint8_t speed_percent = 100) {
+    void TurnRightDuration(uint8_t speed_percent = 0) {
+        int duration_ms = config_.right_turn_duration_ms;
+        if (speed_percent == 0) speed_percent = config_.default_speed_percent;
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 右转 - 向右转%d毫秒, 速度%d%%", duration_ms, speed_percent);
         ExecuteAction(MOTOR_FULL_RIGHT, duration_ms, 0, 1, speed_percent);
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 右转完成");
     }
 
     // Additional useful movements
-    void QuickForward(uint8_t speed_percent = 100) {
-        ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速前进 - 向前冲刺5秒, 速度%d%%", speed_percent);
-        ExecuteAction(MOTOR_FORWARD, 5000, 0, 1, speed_percent);
+    void QuickForward(uint8_t speed_percent = 0) {
+        int duration_ms = config_.quick_forward_duration_ms;
+        if (speed_percent == 0) speed_percent = config_.default_speed_percent;
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速前进 - 向前冲刺%d毫秒, 速度%d%%", duration_ms, speed_percent);
+        ExecuteAction(MOTOR_FORWARD, duration_ms, 0, 1, speed_percent);
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速前进完成");
     }
 
-    void QuickBackward(uint8_t speed_percent = 100) {
-        ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速后退 - 向后退5秒, 速度%d%%", speed_percent);
-        ExecuteAction(MOTOR_BACKWARD, 5000, 0, 1, speed_percent);
+    void QuickBackward(uint8_t speed_percent = 0) {
+        int duration_ms = config_.quick_backward_duration_ms;
+        if (speed_percent == 0) speed_percent = config_.default_speed_percent;
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速后退 - 向后退%d毫秒, 速度%d%%", duration_ms, speed_percent);
+        ExecuteAction(MOTOR_BACKWARD, duration_ms, 0, 1, speed_percent);
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 快速后退完成");
     }
 
-    void Wiggle(uint8_t speed_percent = 100) {
-        ESP_LOGI(MOTOR_LOG_TAG, "动作: 摆动 - 左右快速摆动, 速度%d%%", speed_percent);
-        ExecuteAction(MOTOR_FULL_LEFT, 300, 200, 3, speed_percent);
-        ExecuteAction(MOTOR_FULL_RIGHT, 300, 200, 3, speed_percent);
+    void Wiggle(uint8_t speed_percent = 0) {
+        int duration_ms = config_.wiggle_duration_ms;
+        if (speed_percent == 0) speed_percent = config_.default_speed_percent;
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 摆动 - 左右快速摆动%d毫秒, 速度%d%%", duration_ms, speed_percent);
+        ExecuteAction(MOTOR_FULL_LEFT, duration_ms/3, duration_ms/6, 3, speed_percent);
+        ExecuteAction(MOTOR_FULL_RIGHT, duration_ms/3, duration_ms/6, 3, speed_percent);
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 摆动完成");
     }
 
-    void Dance(uint8_t speed_percent = 100) {
-        ESP_LOGI(MOTOR_LOG_TAG, "动作: 跳舞 - 欢快舞蹈, 速度%d%%", speed_percent);
-        ExecuteAction(MOTOR_FORWARD_LEFT, 500, 300, 2, speed_percent);
-        ExecuteAction(MOTOR_FORWARD_RIGHT, 500, 300, 2, speed_percent);
-        ExecuteAction(MOTOR_BACK_LEFT, 500, 300, 2, speed_percent);
-        ExecuteAction(MOTOR_BACK_RIGHT, 500, 300, 2, speed_percent);
+    void Dance(uint8_t speed_percent = 0) {
+        int duration_ms = config_.dance_duration_ms;
+        if (speed_percent == 0) speed_percent = config_.default_speed_percent;
+        ESP_LOGI(MOTOR_LOG_TAG, "动作: 跳舞 - 欢快舞蹈%d毫秒, 速度%d%%", duration_ms, speed_percent);
+        ExecuteAction(MOTOR_FORWARD_LEFT, duration_ms/4, duration_ms/8, 2, speed_percent);
+        ExecuteAction(MOTOR_FORWARD_RIGHT, duration_ms/4, duration_ms/8, 2, speed_percent);
+        ExecuteAction(MOTOR_BACK_LEFT, duration_ms/4, duration_ms/8, 2, speed_percent);
+        ExecuteAction(MOTOR_BACK_RIGHT, duration_ms/4, duration_ms/8, 2, speed_percent);
         ESP_LOGI(MOTOR_LOG_TAG, "动作: 跳舞完成");
     }
 };
